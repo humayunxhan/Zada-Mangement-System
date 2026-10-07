@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import Feedback from '../components/Feedback';
+import Icon from '../components/Icon';
 import { api } from '../api';
 
 export default function UsersView({ currentUser }) {
@@ -70,7 +72,7 @@ export default function UsersView({ currentUser }) {
       await api.auth.toggleStatus(user.id, nextStatus);
       await loadUsers();
     } catch (err) {
-      alert(err.message || 'Failed to update user status');
+      setError(err.message || 'Could not update account status.');
     }
   }
 
@@ -79,15 +81,15 @@ export default function UsersView({ currentUser }) {
       <div className="users-layout">
         {/* Left column: Add New User Form */}
         <div className="panel user-form-panel">
-          <h2>Create New Account</h2>
+          <h2>Create an account</h2>
           <p className="panel-sub">Add a staff member or administrator account</p>
 
-          {error && <div className="alert-error">⚠️ {error}</div>}
-          {success && <div className="alert-success">✅ {success}</div>}
+          {error && <Feedback>{error}</Feedback>}
+          {success && <Feedback tone="success">{success}</Feedback>}
 
-          <form onSubmit={handleCreateUser}>
+          <form onSubmit={handleCreateUser}><fieldset className="dialog-fields" disabled={creating}>
             <label>
-              Full Name *
+              Full name
               <input
                 type="text"
                 required
@@ -98,7 +100,7 @@ export default function UsersView({ currentUser }) {
             </label>
 
             <label>
-              Username *
+              Username
               <input
                 type="text"
                 required
@@ -109,9 +111,9 @@ export default function UsersView({ currentUser }) {
             </label>
 
             <label>
-              Password * (Minimum 12 characters)
+              Password (at least 6 characters)
               <input
-                type="password"
+                type="password" autoComplete="new-password"
                 required
                 minLength={12}
                 placeholder="••••••••"
@@ -121,7 +123,7 @@ export default function UsersView({ currentUser }) {
             </label>
 
             <label>
-              Role *
+              Role
               <select
                 value={form.role}
                 onChange={(e) => setForm({ ...form, role: e.target.value })}
@@ -132,20 +134,20 @@ export default function UsersView({ currentUser }) {
             </label>
 
             <button type="submit" className="primary full-width" disabled={creating}>
-              {creating ? 'Creating...' : '+ Create Account'}
+              {creating ? 'Creating...' : 'Create account'}
             </button>
-          </form>
+          </fieldset></form>
         </div>
 
         {/* Right column: Users List */}
         <div className="panel users-list-panel">
           <div className="panel-header-row">
             <div>
-              <h2>Authorized Users</h2>
-              <p className="panel-sub">Accounts stored in MySQL on Hostinger VPS</p>
+              <h2>Team accounts</h2>
+              <p className="panel-sub">Manage who can use the supplier desk.</p>
             </div>
-            <button type="button" onClick={loadUsers} className="refresh-btn">
-              ↻ Refresh
+            <button type="button" onClick={loadUsers} className="refresh-btn" disabled={loading}><Icon name="refresh" size={16} />
+              Refresh
             </button>
           </div>
 
@@ -172,7 +174,7 @@ export default function UsersView({ currentUser }) {
                       </td>
                       <td>
                         <span className={`role-badge role-${u.role}`}>
-                          {u.role.toUpperCase()}
+                          {u.role === 'admin' ? 'Administrator' : 'Operator'}
                         </span>
                       </td>
                       <td>

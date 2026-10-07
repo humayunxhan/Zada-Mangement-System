@@ -2,6 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import './style.css';
 import './overrides.css';
+import './polish.css';
 import './mobile.css';
 import App from './App';
 window.addEventListener('beforeinstallprompt', event => {

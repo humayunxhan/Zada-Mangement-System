@@ -10,6 +10,7 @@ data = json.loads(cred.read_text())
 if any(not isinstance(data.get(k), str) or not data[k] for k in ['db_host', 'db_name', 'db_user', 'db_pass']):
     raise SystemExit('Waiting for complete database credentials in the private local file.')
 subprocess.run(SSH + [f"umask 077; cat > '{PRIVATE}/provision.php'"], input=(ROOT / 'deploy/provision.php').read_bytes(), check=True)
+subprocess.run(SSH + [f"umask 077; mkdir -p '{PRIVATE}/migrations'; cat > '{PRIVATE}/migrations/001-returns.php'"], input=(ROOT / 'deploy/migrations/001-returns.php').read_bytes(), check=True)
 subprocess.run(SSH + [f"php -l '{PRIVATE}/provision.php'"], check=True)
 subprocess.run(SSH + [f"php '{PRIVATE}/provision.php'"], input=json.dumps(data).encode(), check=True)
 result = subprocess.run(SSH + [f"cat '{PRIVATE}/initial-login.credentials.json'"], check=True, stdout=subprocess.PIPE)

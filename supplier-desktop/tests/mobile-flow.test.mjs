@@ -10,14 +10,16 @@ await build({entryPoints:['src/App.jsx'],outfile:fileURLToPath(bundle),bundle:tr
 const dom=new JSDOM('<div id="root"></div>',{url:'https://spms.test/'});
 Object.assign(globalThis,{window:dom.window,document:dom.window.document,localStorage:dom.window.localStorage,CustomEvent:dom.window.CustomEvent,IS_REACT_ACT_ENVIRONMENT:true});
 Object.defineProperty(globalThis,'navigator',{value:dom.window.navigator,configurable:true});
+window.HTMLDialogElement.prototype.showModal=function(){this.open=true;this.focus();};
 window.matchMedia=()=>({matches:false});window.scrollTo=()=>{};globalThis.confirm=()=>false;
 const user={id:1,username:'test',full_name:'Test Staff',role:'admin'};
 localStorage.setItem('spms_user',JSON.stringify(user));localStorage.setItem('spms_token','test-only');
-const bill={sync_id:'bill-test',supplier_name:'Test Supplier',posting_date:'2026-10-04',bill_date:'2026-10-04',actual_amount:100,total_bill_amount:100,tax_amount:0,tax_percent:0,paid_amount:20,remaining_balance:80,payment_status:'PARTIAL',category:'PAYABLE',payments:[]};
+const bill={sync_id:'bill-test',supplier_name:'Test Supplier',posting_date:'2026-10-04',bill_date:'2026-10-04',net_payable:100,returned_amount:0,pending_credit:0,ledgerEvents:[],voucher_no:'10',actual_amount:100,total_bill_amount:100,tax_amount:0,tax_percent:0,paid_amount:20,remaining_balance:80,payment_status:'PARTIAL',category:'PAYABLE',payments:[]};
+const lowerVoucher={...bill,sync_id:'lower-voucher',voucher_no:'2',posting_date:'2026-10-07',supplier_name:'Later date lower voucher'};
 let writes=0,release,savePayloads=[];
 globalThis.fetch=async(url,options={})=>{
  if(options.method==='POST') {writes++;savePayloads.push(JSON.parse(options.body));await new Promise(resolve=>release=resolve);return {ok:false,status:503,json:async()=>({error:'Test connection failure'})};}
- return {ok:true,status:200,json:async()=>url.includes('/me')?{user}:url.includes('/users')?{users:[user]}:[bill]};
+ return {ok:true,status:200,json:async()=>url.includes('sync-status')?{enabled:false,pending:0,error:null}:url.includes('/me')?{user}:url.includes('/users')?{users:[user]}:[lowerVoucher,bill]};
 };
 const {createRoot}=await import('react-dom/client');
 const root=createRoot(document.getElementById('root'));
@@ -28,11 +30,25 @@ try {
  await click('.mobile-nav button:nth-child(2)');
  assert(document.querySelector('.mobile-bill-card').textContent.includes('Test Supplier'));
  await click('.bill-card-heading');assert(document.querySelector('.bill-card-details'));
- await click('.bill-card-actions .primary');assert(document.querySelector('[role=dialog]'));
- assert.equal(document.activeElement,document.querySelector('[role=dialog]'));
- await click('.payment-modal > button');assert(!document.querySelector('[role=dialog]'));
+ await click('.bill-card-actions .primary');assert(document.querySelector('dialog[open]'));
+ assert(document.querySelector('dialog[open]').contains(document.activeElement));
+ await click('.payment-modal .dialog-actions button');assert(!document.querySelector('dialog[open]'));
+ await click('.mobile-nav button:last-child');
+ const returnLink=[...document.querySelectorAll('.account-panel button')].find(el=>el.textContent.includes('Returns & supplier credits'));
+ await act(async()=>returnLink.click());assert(document.querySelector('.returns-page'));
+ const showAll=[...document.querySelectorAll('.returns-page button')].find(el=>el.textContent==='Show all bills');
+ await act(async()=>showAll.click());
+ const returnButton=[...document.querySelectorAll('.return-actions button')].find(el=>el.textContent==='Return stock');
+ await act(async()=>returnButton.click());assert(document.querySelector('dialog[open]'));
+ await click('.mobile-nav button:first-child');assert(document.querySelector('.returns-page'),'Unsaved return blocks navigation');
+ await act(async()=>{Object.defineProperty(navigator,'onLine',{value:false,configurable:true});window.dispatchEvent(new window.Event('offline'));});
+ assert(document.querySelector('dialog .dialog-actions .primary').disabled,'Offline return save blocked');
+ globalThis.confirm=()=>true;
+ await act(async()=>[...document.querySelectorAll('dialog .dialog-actions button')].find(el=>el.textContent==='Cancel').click());
+ globalThis.confirm=()=>false;
+ await act(async()=>{Object.defineProperty(navigator,'onLine',{value:true,configurable:true});window.dispatchEvent(new window.Event('online'));});
  await click('.header-add');assert(document.querySelector('.bill-form'));
- const supplier=document.querySelector('input[list="suppliers-datalist"]');
+ const supplier=document.querySelector('input[list="supplier-names"]');
  await act(async()=>{
    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set.call(supplier,'Unsaved Supplier');
    supplier.dispatchEvent(new window.Event('input',{bubbles:true}));
@@ -44,7 +60,7 @@ try {
  await act(async()=>{form.dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true}));form.dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true}));});
  assert.equal(writes,1); assert(document.querySelector('.form-actions button').disabled);
  await act(async()=>{release();});
- assert(document.querySelector('.alert-error').textContent.includes('Could not confirm save'));
+ assert(document.querySelector('[role=alert]').textContent.includes('Test connection failure'));
  assert(document.querySelector('.bill-form'));
  await act(async()=>{form.dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true}));});
  assert.equal(writes,2);assert.equal(savePayloads[0].sync_id,savePayloads[1].sync_id,'Retry uses same record identity');

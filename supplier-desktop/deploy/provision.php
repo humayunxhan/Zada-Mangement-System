@@ -21,6 +21,8 @@ try {
     umask(0077);
     file_put_contents($private . '/initial-login.credentials.json', json_encode($admin, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES), LOCK_EX);
     init_schema($pdo, $cfg);
+    require $private . '/migrations/001-returns.php';
+    migrate_returns($pdo);
     unset($cfg['default_admin_user'], $cfg['default_admin_pass']);
     $cfg['configured'] = true;
     file_put_contents($private . '/config.php.tmp', "<?php\nreturn " . var_export($cfg, true) . ";\n", LOCK_EX);

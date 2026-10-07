@@ -1,6 +1,7 @@
 import mysql from 'mysql2/promise';
 import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
+import crypto from 'crypto';
 
 dotenv.config();
 
@@ -97,6 +98,17 @@ export async function initDb() {
       INDEX idx_deleted_at (deleted_at)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   `);
+
+  await p.query(`CREATE TABLE IF NOT EXISTS supplier_ledger_events (
+    id INT AUTO_INCREMENT PRIMARY KEY, sync_id VARCHAR(64) NOT NULL UNIQUE,
+    kind VARCHAR(20) NOT NULL, bill_sync_id VARCHAR(64) NOT NULL, target_bill_sync_id VARCHAR(64) NOT NULL DEFAULT '',
+    event_date VARCHAR(10) NOT NULL, amount DECIMAL(12,2) NOT NULL, payment_mode VARCHAR(50) DEFAULT '',
+    reference_no VARCHAR(100) DEFAULT '', remarks TEXT, created_by VARCHAR(50), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_source (bill_sync_id), INDEX idx_target (target_bill_sync_id), INDEX idx_date (event_date)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  await p.query(`CREATE TABLE IF NOT EXISTS supplier_sync_state (id INT PRIMARY KEY, source_id VARCHAR(64) NOT NULL, version BIGINT NOT NULL DEFAULT 0) ENGINE=InnoDB`);
+  await p.query('INSERT IGNORE INTO supplier_sync_state (id, source_id) VALUES (1, ?)', [crypto.randomUUID()]);
+  await p.query(`CREATE TABLE IF NOT EXISTS supplier_sync_outbox (id BIGINT AUTO_INCREMENT PRIMARY KEY, payload LONGTEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB`);
 
   // 4. Seed default Admin user if no users exist
   const [rows] = await p.query('SELECT COUNT(*) as count FROM users');

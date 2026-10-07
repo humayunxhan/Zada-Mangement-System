@@ -7,6 +7,9 @@ import { initDb } from './db.js';
 import authRoutes from './routes/auth.js';
 import billsRoutes from './routes/bills.js';
 import paymentsRoutes from './routes/payments.js';
+import returnsRoutes from './routes/returns.js';
+import { transaction } from './ledger-store.js';
+import { flushSupplierSync } from './supplier-sync.js';
 
 dotenv.config();
 
@@ -23,6 +26,7 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/bills', billsRoutes);
 app.use('/api/payments', paymentsRoutes);
+app.use('/api/returns', returnsRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -38,7 +42,7 @@ app.get('/api/health', (req, res) => {
 const distPath = path.join(__dirname, '../dist');
 app.use(express.static(distPath));
 
-app.get('*', (req, res) => {
+app.use((req, res) => {
   // If request isn't an API call, serve React index.html
   if (!req.path.startsWith('/api')) {
     res.sendFile(path.join(distPath, 'index.html'), (err) => {
@@ -55,6 +59,9 @@ async function start() {
   try {
     console.log('[Server] Connecting to MySQL and verifying schema...');
     await initDb();
+    await transaction(async () => null); // Bootstrap old records through the same durable sync path.
+    void flushSupplierSync();
+    setInterval(() => void flushSupplierSync(), 15000).unref();
     console.log('[Server] Database initialized successfully.');
 
     app.listen(PORT, '0.0.0.0', () => {

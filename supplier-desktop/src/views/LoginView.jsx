@@ -1,11 +1,14 @@
 import DeveloperCredits from '../components/DeveloperCredits';
-import React, { useState } from 'react';
-import { api } from '../api';
 import InstallApp from '../components/InstallApp';
+import React, { useState } from 'react';
+import Icon from '../components/Icon';
+import Feedback from '../components/Feedback';
+import { api } from '../api';
 
 export default function LoginView({ onLoginSuccess }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -33,16 +36,16 @@ export default function LoginView({ onLoginSuccess }) {
       <div className="login-container">
         <div className="login-header">
           <div className="login-brand">
-            <span className="brand-tag">ZADA PHARMACY</span>
-            <h1>SPMS Portal</h1>
-            <p>Supplier & Payment Management System</p>
+            <span className="login-mark pharmacy-mark"><Icon name="pharmacy" size={28} /></span><p className="login-brand-name">Zada Pharmacy</p>
+            <h1>Supplier desk</h1>
+            <p>Bills, payments and supplier returns.</p>
           </div>
         </div>
 
         <form className="login-form" onSubmit={handleSubmit}>
-          <h2>Sign In to Your Account</h2>
+          <h2>Sign in to continue</h2>
 
-          {error && <div className="login-error">⚠️ {error}</div>}
+          {error && <Feedback>{error}</Feedback>}
 
           <div className="form-group">
             <label htmlFor="username">Username</label>
@@ -61,25 +64,25 @@ export default function LoginView({ onLoginSuccess }) {
 
           <div className="form-group">
             <label htmlFor="password">Password</label>
-            <input
+            <div className="password-field"><input
               id="password"
-              type="password"
+              type={showPassword ? 'text' : 'password'}
               autoComplete="current-password"
               required
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={loading}
-            />
+            /><button type="button" aria-controls="password" aria-pressed={showPassword} disabled={loading} onClick={() => setShowPassword(v => !v)}>{showPassword ? 'Hide' : 'Show'}</button></div>
           </div>
 
           <button type="submit" className="login-button" disabled={loading}>
-            {loading ? 'Authenticating...' : 'Sign In'}
+            {loading ? 'Signing in…' : 'Sign in'}
           </button>
 
           <InstallApp />
           <div className="login-footer">
-            <small>Private portal · Authorized users only</small>
+            <small>Need access? Ask your pharmacy administrator.</small>
           </div>
         </form>
         <DeveloperCredits />

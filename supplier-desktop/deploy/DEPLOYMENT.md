@@ -20,13 +20,13 @@ Node is used locally for the Vite build only.
   bill/payment writes, balance calculations, reloads, soft deletion and private include protection.
 - Uniquely marked verification records were removed after testing.
 
-## Finish provisioning
+## Fresh installation only — never rerun on this live database
 
 Fill `spms.credentials.json` locally with the exact Hostinger database name,
 database username and password. Preserve its mode 600 and do not commit it.
 Run `python3 scripts/provision-php.py` from supplier-desktop. This explicitly
 requires the dedicated account-prefixed SPMS database to be empty and preserves
-an existing config. It creates the three application tables and a strong initial
+an existing config. It creates application and ledger tables and a strong initial
 admin account. Login details are saved privately to deploy/initial-login.credentials.json.
 
 The initial deployment was verified using `python3 scripts/verify-live.py`.
@@ -35,9 +35,26 @@ Never print database credentials, JWT keys, or tokens in logs.
 
 ## Subsequent releases
 
-Run `npm run build:php`, then `python3 scripts/deploy-php.py`. The deploy script
-backs up only the SPMS docroot before overlaying the release. It preserves
-private configuration and does not access the clinic site's files.
+Run `npm run build:php`, then `python3 scripts/deploy-integration.py`.
+The upgrade script uploads and lints privately, backs up the SPMS docroot,
+briefly pauses API traffic, verifies a dedicated MySQL dump, and applies the
+additive ledger migration. Existing users/bills/payments are hashed before and
+after migration and must remain identical. It publishes the entry page and
+reopens API traffic last. Existing credentials and private configuration stay
+in place. No Node service or other domain is deployed.
+
+Before API access resumes, an upgrade failure restores the previous files.
+After reopening, do not automatically restore an older release: it cannot
+interpret new return/refund/adjustment records. Keep the maintenance gate active
+while investigating, preserve a fresh database backup, and fix forward. SQL
+backups contain private data and remain mode 600 outside public_html.
+
+`scripts/deploy-php.py` is the legacy file-only publisher; do not use it for this
+schema upgrade. Verification: `npm run test:mobile`, `npm test`,
+`python3 scripts/test-php-remote.py`, then `python3 scripts/verify-pwa-live.py`.
+The remote test uses SQLite in memory and connection-scoped MySQL temporary
+tables; it copies no production rows and writes no live financial transactions.
+Set `SPMS_LOGIN_FILE` to an existing private login file for read-only live checks.
 
 No-index directives request exclusion by compliant crawlers; actual data privacy
 is enforced by authenticated API routes. Static login assets remain publicly accessible.

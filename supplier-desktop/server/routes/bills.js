@@ -3,6 +3,9 @@ import crypto from 'crypto';
 import { getPool } from '../db.js';
 import { authenticateToken } from '../middleware/auth.js';
 
+import ledger from '../../../server/src/modules/suppliers/ledger.cjs';
+import { transaction, ensureUnlocked } from '../ledger-store.js';
+
 const router = Router();
 router.use(authenticateToken);
 
@@ -42,47 +45,13 @@ router.get('/', async (req, res) => {
     // Fetch active payments
     const [payments] = await pool.query('SELECT * FROM payments WHERE deleted_at IS NULL ORDER BY payment_date ASC, id ASC');
 
-    // Attach payments and calculate balances
-    const enriched = bills.map((b) => {
-      const linked = payments.filter((p) => p.bill_sync_id === b.sync_id);
-      const paid = money(linked.reduce((s, p) => s + Number(p.amount || 0), 0));
-      const excluded = b.category !== 'PAYABLE';
-      const actual = Number(b.actual_amount || 0);
-      const remaining = excluded ? 0 : money(Math.max(0, actual - paid));
-
-      let paymentStatus = 'UNPAID';
-      if (excluded) {
-        paymentStatus = b.category;
-      } else if (paid === 0) {
-        paymentStatus = 'UNPAID';
-      } else if (remaining > 0) {
-        paymentStatus = 'PARTIAL';
-      } else if (paid > actual) {
-        paymentStatus = 'OVERPAID';
-      } else {
-        paymentStatus = 'COMPLETE';
-      }
-
-      return {
-        ...b,
-        total_bill_amount: Number(b.total_bill_amount || 0),
-        tax_percent: Number(b.tax_percent || 0),
-        tax_amount: Number(b.tax_amount || 0),
-        actual_amount: actual,
-        payments: linked.map((p) => ({
-          ...p,
-          amount: Number(p.amount || 0),
-        })),
-        paid_amount: paid,
-        remaining_balance: remaining,
-        payment_status: paymentStatus,
-      };
-    });
+    const [events] = await pool.query('SELECT * FROM supplier_ledger_events ORDER BY id');
+    const enriched = ledger.decorateRows(bills, payments, events);
 
     res.json(enriched);
   } catch (err) {
     console.error('Error fetching bills:', err);
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
@@ -95,7 +64,7 @@ router.get('/suppliers', async (req, res) => {
     );
     res.json(rows.map((r) => r.supplier_name));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
@@ -108,8 +77,11 @@ router.post('/', async (req, res) => {
     const taxAmount = money((total * tax) / 100);
     const actual = money(total - taxAmount);
     const syncId = b.sync_id || crypto.randomUUID();
-    const pool = getPool();
-
+    const savedBill = await transaction(async (pool, state) => {
+    if (b.sync_id) ensureUnlocked(b.sync_id, state);
+    ledger.date(b.posting_date); ledger.date(b.bill_date);
+    if (!Number.isFinite(total) || !Number.isFinite(tax) || total <= 0 || tax < 0 || tax > 100) { const e = new Error('Enter a positive bill amount and tax between 0 and 100.'); e.status = 400; throw e; }
+    if (!String(b.supplier_name || '').trim()) { const e = new Error('Supplier name is required.'); e.status = 400; throw e; }
     const [existing] = await pool.query('SELECT id FROM bills WHERE sync_id = ?', [syncId]);
 
     if (existing.length > 0) {
@@ -168,10 +140,12 @@ router.post('/', async (req, res) => {
     }
 
     const [saved] = await pool.query('SELECT * FROM bills WHERE sync_id = ?', [syncId]);
-    res.json(saved[0]);
+    return saved[0];
+    });
+    res.json(savedBill);
   } catch (err) {
     console.error('Error saving bill:', err);
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
@@ -179,11 +153,14 @@ router.post('/', async (req, res) => {
 router.delete('/:syncId', async (req, res) => {
   try {
     const { syncId } = req.params;
-    const pool = getPool();
-    await pool.query('UPDATE bills SET deleted_at = CURRENT_TIMESTAMP WHERE sync_id = ?', [syncId]);
+    await transaction(async (pool, state) => {
+      ensureUnlocked(syncId, state);
+      if (state.payments.some(p => p.bill_sync_id === syncId && !p.deleted_at)) { const e = new Error('Delete payments before deleting this bill, or record a stock return.'); e.status = 400; throw e; }
+      await pool.query('UPDATE bills SET deleted_at = CURRENT_TIMESTAMP WHERE sync_id = ?', [syncId]);
+    });
     res.json({ success: true, syncId });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 

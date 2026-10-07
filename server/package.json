@@ -9,7 +9,8 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
-    "check": "node --check src/index.js"
+    "check": "node --check src/index.js",
+    "test": "node --test src/modules/suppliers/ledger.test.cjs src/modules/suppliers/supplier-snapshot.test.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

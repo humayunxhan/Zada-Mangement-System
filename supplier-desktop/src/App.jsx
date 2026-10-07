@@ -1,16 +1,21 @@
-import DeveloperCredits from './components/DeveloperCredits';
-import React, { useEffect, useMemo, useState, useRef } from 'react';
-import Sidebar from './components/Sidebar';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import Icon from './components/Icon';
+import Modal from './components/Modal';
+import Feedback from './components/Feedback';
 import InstallApp from './components/InstallApp';
+import DeveloperCredits from './components/DeveloperCredits';
 import AppIcon from './components/AppIcon';
+import Sidebar from './components/Sidebar';
 import SummaryView from './views/SummaryView';
 import AddBillView from './views/AddBillView';
 import AllBillsView from './views/AllBillsView';
+import ReturnsView from './views/ReturnsView';
 import UsersView from './views/UsersView';
 import LoginView from './views/LoginView';
+import { newSyncId } from './ids';
 import { api, getSavedUser, setToken, setSavedUser } from './api';
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
 const money = (v) => Number(v || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
 const blank = () => ({
@@ -23,6 +28,7 @@ const blank = () => ({
   tax_percent: '0',
   category: 'PAYABLE',
   remarks: '',
+  payment_sync_id: newSyncId(),
   record_payment: false,
   payment_date: today(),
   payment_amount: '',
@@ -35,11 +41,16 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState(() => getSavedUser());
   const [authChecking, setAuthChecking] = useState(true);
 
+  const [returning, setReturning] = useState(null);
+  const [syncStatus, setSyncStatus] = useState(null);
   const [items, setItems] = useState([]);
-  const [form, setForm] = useState(blank());
+  const initialForm = useRef(blank());
+  const [form, setForm] = useState(initialForm.current);
+  const baseline = useRef(JSON.stringify(initialForm.current));
   const [paying, setPaying] = useState(null);
   const [confirming, setConfirming] = useState(null);
   const [payment, setPayment] = useState({
+    sync_id: newSyncId(),
     payment_date: today(),
     amount: '',
     payment_mode: 'CHEQUE',
@@ -51,63 +62,50 @@ export default function App() {
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState('summary');
   const [errorMsg, setErrorMsg] = useState('');
-  const [notice, setNotice] = useState('');
-  const [online, setOnline] = useState(navigator.onLine);
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const savingRef = useRef(false);
-  const pendingBillId = useRef(null);
-  const pendingPaymentId = useRef(null);
-  const loadVersion = useRef(0);
-  const modalRef = useRef(null);
-  const [formBaseline, setFormBaseline] = useState(() => JSON.stringify(blank()));
-  const dirty = JSON.stringify(form) !== formBaseline;
+  const [savingBill, setSavingBill] = useState(false);
+  const [savingPayment, setSavingPayment] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [formError, setFormError] = useState('');
+  const [paymentError, setPaymentError] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+  const [notice, setNotice] = useState('');
+  const requestSequence = useRef(0);
 
-  function resetForm() {
-    const next = blank(); setForm(next); setFormBaseline(JSON.stringify(next));
-    pendingBillId.current = null; pendingPaymentId.current = null;
+  const [online, setOnline] = useState(navigator.onLine);
+  const mutationBusy = useRef(false);
+  const billIdentity = useRef(null);
+  const dirty = JSON.stringify(form) !== baseline.current;
+  function resetForm() { const next=blank(); baseline.current=JSON.stringify(next); setForm(next); billIdentity.current=null; }
+  function clearSession() {
+    requestSequence.current++; setCurrentUser(null); setItems([]); setPaying(null); setReturning(null); setConfirming(null);
+    resetForm(); setSearch(''); setNotice(''); setFormError(''); setPaymentError(''); setErrorMsg(''); setActiveTab('summary');
   }
   function navigate(tab) {
-    if (savingRef.current) return;
-    if (activeTab === 'bills' && dirty && tab !== 'bills' && !confirm('Leave this form? Unsaved changes will be discarded.')) return;
+    if (mutationBusy.current) return;
+    if (activeTab === 'bills' && tab !== 'bills' && dirty && !confirm('Discard unsaved bill changes?')) return;
+    if (!window.dispatchEvent(new CustomEvent('spms:navigate', { cancelable:true }))) return;
     if (activeTab === 'bills' && tab !== 'bills') resetForm();
-    setActiveTab(tab); setErrorMsg(''); window.scrollTo(0, 0);
+    setReturning(null);setFormError('');setNotice('');setActiveTab(tab);window.scrollTo(0,0);
+  }
+  function closePayment() {
+    if (mutationBusy.current || ((payment.amount || payment.reference_no || payment.remarks) && !confirm('Discard this payment form?'))) return;
+    setPaying(null);setPaymentError('');
+  }
+  function openPayment(bill) {
+    setPayment({ sync_id:newSyncId(), payment_date:today(), amount:'', payment_mode:'CHEQUE', reference_no:'', remarks:'' });
+    setPaymentError('');setPaying(bill);
   }
   useEffect(() => {
-    const connect = () => setOnline(navigator.onLine);
-    window.addEventListener('online', connect); window.addEventListener('offline', connect);
-    return () => { window.removeEventListener('online', connect); window.removeEventListener('offline', connect); };
-  }, []);
+    const update=()=>setOnline(navigator.onLine);
+    window.addEventListener('online',update);window.addEventListener('offline',update);
+    return ()=>{window.removeEventListener('online',update);window.removeEventListener('offline',update);};
+  },[]);
   useEffect(() => {
-    if (!dirty && !paying && !saving) return;
-    const guard = e => { e.preventDefault(); e.returnValue = ''; };
-    window.addEventListener('beforeunload', guard);
-    return () => window.removeEventListener('beforeunload', guard);
-  }, [dirty, paying, saving]);
-  useEffect(() => {
-    if (!notice) return;
-    const timer = setTimeout(() => setNotice(''), 6000);
-    return () => clearTimeout(timer);
-  }, [notice]);
-
-  useEffect(() => {
-    if (!paying && !confirming) return;
-    const previousFocus = document.activeElement;
-    const modal = modalRef.current;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    modal?.focus();
-    function trap(event) {
-      if (event.key !== 'Tab' || !modal) return;
-      const controls = [...modal.querySelectorAll('button, input, select, textarea, [tabindex="0"]')].filter(el => !el.matches(':disabled'));
-      const first = controls[0], last = controls.at(-1);
-      if (!first) { event.preventDefault(); return; }
-      if (event.shiftKey && (document.activeElement === first || document.activeElement === modal)) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && (document.activeElement === last || document.activeElement === modal)) { event.preventDefault(); first.focus(); }
-    }
-    modal?.addEventListener('keydown', trap);
-    return () => { document.body.style.overflow = previousOverflow; modal?.removeEventListener('keydown', trap); if (previousFocus?.isConnected) previousFocus.focus(); };
-  }, [paying, confirming]);
+    if (!dirty && !paying) return;
+    const guard=e=>{e.preventDefault();e.returnValue='';};
+    window.addEventListener('beforeunload',guard);return()=>window.removeEventListener('beforeunload',guard);
+  },[dirty,paying]);
 
   // Check current user session on load
   useEffect(() => {
@@ -118,7 +116,8 @@ export default function App() {
           setCurrentUser(res.user);
           setSavedUser(res.user);
         }
-      } catch {
+      } catch (e) {
+        if (window.supplierAPI && currentUser && !String(e.message).includes('Session expired')) return;
         setCurrentUser(null);
         setSavedUser(null);
         setToken(null);
@@ -130,7 +129,7 @@ export default function App() {
     checkAuth();
 
     function onAuthExpired() {
-      setCurrentUser(null); setItems([]); resetForm(); setPaying(null); setConfirming(null); setSearch(''); setNotice(''); setActiveTab('summary'); loadVersion.current++;
+      clearSession();
     }
     window.addEventListener('auth:expired', onAuthExpired);
     return () => window.removeEventListener('auth:expired', onAuthExpired);
@@ -139,26 +138,14 @@ export default function App() {
   // Load bills when user is logged in
   const load = async () => {
     if (!currentUser) return;
-    const version = ++loadVersion.current;
+    const sequence = ++requestSequence.current;
     setLoading(true);
     try {
-      setErrorMsg('');
       const data = await api.bills.list({ from, to });
-      if (version === loadVersion.current) setItems(data || []);
+      if (sequence === requestSequence.current) { setItems(data || []); setErrorMsg(''); }
     } catch (err) {
-      console.error('Failed to load bills:', err);
-      // Fallback to electron API if offline / dev electron
-      if (window.supplierAPI) {
-        try {
-          const fallbackData = await window.supplierAPI.list({ from, to });
-          setItems(fallbackData || []);
-          return;
-        } catch {
-          // Ignore
-        }
-      }
-      if (version === loadVersion.current) setErrorMsg(err.message || 'Unable to load records. Check your connection and retry.');
-    } finally { if (version === loadVersion.current) setLoading(false); }
+      if (sequence === requestSequence.current) setErrorMsg(err.message || 'Could not load bills. Check the connection and try again.');
+    } finally { if (sequence === requestSequence.current) setLoading(false); }
   };
 
   useEffect(() => {
@@ -169,28 +156,40 @@ export default function App() {
 
   const tabs = useMemo(() => {
     const list = [
-      { id: 'summary', label: 'Summary', icon: '📊' },
-      { id: 'bills', label: 'Add Bill(s)', icon: '📝' },
-      { id: 'all', label: 'All Bills', icon: '📑' },
-      { id: 'payments', label: 'Payments', icon: '↗' },
-      { id: 'more', label: 'Account & App', icon: '☰' },
+      { id: 'summary', label: 'Overview', icon: 'overview' },
+      { id: 'bills', label: 'Add a bill', icon: 'plus' },
+      { id: 'all', label: 'All bills', icon: 'bill' },
+      { id: 'returns', label: 'Returns & credits', icon: 'returns' },
+      { id: 'payments', label: 'Payments', icon: 'bill' },
+      { id: 'more', label: 'Account & app', icon: 'users' },
     ];
     if (currentUser?.role === 'admin') {
-      list.push({ id: 'users', label: 'Users & Staff', icon: '👥' });
+      list.push({ id: 'users', label: 'Team access', icon: 'users' });
     }
     return list;
   }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const check = () => api.returns.syncStatus().then(status=>{setSyncStatus(status);if(status.enabled===false)clearInterval(timer);}).catch(() => {});
+    const timer = setInterval(check, 15000); void check();
+    return () => clearInterval(timer);
+  }, [currentUser, items]);
 
   const totals = useMemo(() => {
     return items.reduce(
       (s, b) => ({
         gross: s.gross + Number(b.total_bill_amount || 0),
         tax: s.tax + Number(b.tax_amount || 0),
-        actual: s.actual + (b.category === 'PAYABLE' ? Number(b.actual_amount || 0) : 0),
+        actual: s.actual + (Number(b.net_payable || 0)),
         paid: s.paid + Number(b.paid_amount || 0),
         balance: s.balance + Number(b.remaining_balance || 0),
+        credit: s.credit + Number(b.pending_credit || 0),
+        returned: s.returned + Number(b.returned_amount || 0),
+        refunded: s.refunded + Number(b.refund_amount || 0),
+        adjusted: s.adjusted + Number(b.credit_applied || 0),
       }),
-      { gross: 0, tax: 0, actual: 0, paid: 0, balance: 0 }
+      { gross: 0, tax: 0, actual: 0, paid: 0, balance: 0, credit: 0, returned: 0, refunded: 0, adjusted: 0 }
     );
   }, [items]);
 
@@ -207,62 +206,61 @@ export default function App() {
 
   async function save(e) {
     e.preventDefault();
-    if (savingRef.current || !online) return;
-    savingRef.current = true; setSaving(true); setErrorMsg('');
-    pendingBillId.current ||= form.sync_id || crypto.randomUUID();
-    const payload = { ...form, sync_id: pendingBillId.current };
+    if (mutationBusy.current || !online) return;
+    mutationBusy.current=true;
+    setSavingBill(true); setFormError(''); setNotice('');
     let billSaved = false;
     try {
-      let saved;
-      try { saved = await api.bills.save(payload); }
-      catch (err) { if (window.supplierAPI) saved = await window.supplierAPI.saveBill(payload); else throw err; }
+      billIdentity.current ||= form.sync_id || newSyncId();
+      const payload = { ...form, sync_id: billIdentity.current };
+      setForm(payload);
+      const saved = await api.bills.save(payload);
       billSaved = true;
-      setForm(prev => ({ ...prev, sync_id: saved.sync_id }));
+
+      // Record immediate payment if checked
       if (form.record_payment && Number(form.payment_amount) > 0 && saved?.sync_id) {
-        pendingPaymentId.current ||= crypto.randomUUID();
         const paymentPayload = {
-          sync_id: pendingPaymentId.current, bill_sync_id: saved.sync_id,
+          sync_id: form.payment_sync_id,
+          bill_sync_id: saved.sync_id,
           payment_date: form.payment_date || form.posting_date || today(),
-          amount: Number(form.payment_amount), payment_mode: form.payment_mode || 'COUNTER_CASH',
-          reference_no: form.payment_reference_no || '', remarks: form.payment_remarks || 'Payment recorded on bill entry',
+          amount: Number(form.payment_amount),
+          payment_mode: form.payment_mode || 'COUNTER_CASH',
+          reference_no: form.payment_reference_no || '',
+          remarks: form.payment_remarks || (form.remarks ? `Paid with bill: ${form.remarks}` : 'Payment recorded on bill entry'),
         };
-        try { await api.payments.add(paymentPayload); }
-        catch (err) { if (window.supplierAPI) await window.supplierAPI.addPayment(paymentPayload); else throw err; }
+
+        await api.payments.add(paymentPayload);
       }
-      resetForm(); setActiveTab('all'); setNotice('Bill saved successfully.'); window.scrollTo(0, 0); await load();
+
+      setNotice(form.record_payment && Number(form.payment_amount) > 0 ? 'Bill and payment saved.' : 'Supplier bill saved.');
+      resetForm();
+      setActiveTab('all');
+      await load();
     } catch (err) {
-      setErrorMsg((billSaved ? 'Bill saved, but payment could not be confirmed. Retry this form to finish safely. ' : 'Could not confirm save. Retry this form safely. ') + err.message);
-    } finally { savingRef.current = false; setSaving(false); }
+      setFormError(billSaved ? `Bill saved, but the payment could not be recorded. ${err.message} Your entries are kept; retry to finish the payment.` : err.message);
+    } finally { mutationBusy.current=false; setSavingBill(false); }
   }
 
   async function pay(e) {
     e.preventDefault();
-    if (savingRef.current || !online) return;
-    savingRef.current = true; setSaving(true); setErrorMsg('');
-    pendingPaymentId.current ||= crypto.randomUUID();
+    if (mutationBusy.current || !online) return;
+    mutationBusy.current=true;
+    setSavingPayment(true); setPaymentError('');
     try {
-      const paymentPayload = { ...payment, sync_id: pendingPaymentId.current, bill_sync_id: paying.sync_id };
-      try { await api.payments.add(paymentPayload); }
-      catch (err) { if (window.supplierAPI) await window.supplierAPI.addPayment(paymentPayload); else throw err; }
-      setPaying(null); pendingPaymentId.current = null;
-      setPayment({ payment_date: today(), amount: '', payment_mode: 'CHEQUE', reference_no: '', remarks: '' });
-      setNotice('Payment recorded successfully.'); await load();
-    } catch (err) { setErrorMsg('Could not confirm payment. Retry safely. ' + err.message); }
-    finally { savingRef.current = false; setSaving(false); }
-  }
+      const paymentPayload = { ...payment, bill_sync_id: paying.sync_id };
+      await api.payments.add(paymentPayload);
 
-  function openPayment(bill) {
-    pendingPaymentId.current = null; setErrorMsg('');
-    setPayment({ payment_date: today(), amount: '', payment_mode: 'CHEQUE', reference_no: '', remarks: '' });
-    setPaying(bill);
-  }
-  function closePayment() {
-    if (savingRef.current) return;
-    if ((payment.amount || payment.reference_no || payment.remarks) && !confirm('Discard this payment form?')) return;
-    setPaying(null); setErrorMsg('');
+      setNotice('Payment recorded.');
+      setPaying(null);
+      setPayment({ sync_id: newSyncId(), payment_date: today(), amount: '', payment_mode: 'CHEQUE', reference_no: '', remarks: '' });
+      await load();
+    } catch (err) {
+      setPaymentError(err.message);
+    } finally { mutationBusy.current=false; setSavingPayment(false); }
   }
 
   function onEditBill(b) {
+    setFormError(''); setNotice('');
     const next = {
       ...blank(),
       ...b,
@@ -271,12 +269,13 @@ export default function App() {
       payment_reference_no: '',
       payment_remarks: '',
     };
-    setForm(next); setFormBaseline(JSON.stringify(next)); pendingBillId.current = b.sync_id; pendingPaymentId.current = null;
+    setForm(next);baseline.current=JSON.stringify(next);billIdentity.current=b.sync_id;
     setActiveTab('bills');
     window.scrollTo(0, 0);
   }
 
   function onDeleteBill(record, kind = 'bill') {
+    setDeleteError('');
     setConfirming({
       kind,
       id: record.sync_id,
@@ -285,9 +284,9 @@ export default function App() {
   }
 
   function handleLogout() {
-    if (!savingRef.current && confirm(dirty ? 'Sign out and discard unsaved changes?' : 'Are you sure you want to sign out?')) {
+    if (!mutationBusy.current && window.dispatchEvent(new CustomEvent('spms:navigate',{cancelable:true})) && confirm(dirty ? 'Sign out and discard unsaved changes?' : 'Are you sure you want to sign out?')) {
       api.auth.logout();
-      setCurrentUser(null); setItems([]); resetForm(); setPaying(null); setConfirming(null); setSearch(''); setNotice(''); loadVersion.current++; setActiveTab('summary');
+      clearSession();
     }
   }
 
@@ -295,7 +294,7 @@ export default function App() {
     return (
       <div className="login-screen">
         <div className="login-container" style={{ textAlign: 'center' }}>
-          <p style={{ color: '#34d399', fontWeight: 'bold' }}>Loading Zada SPMS...</p>
+          <div className="loading-state" role="status"><span className="loading-spinner" />Opening supplier desk…</div>
         </div>
       </div>
     );
@@ -314,16 +313,17 @@ export default function App() {
             setForm={setForm}
             suppliers={suppliers}
             onSave={save}
-            saving={saving} online={online}
-            onCancel={() => { if (!dirty || confirm('Discard unsaved changes?')) resetForm(); }}
+            saving={savingBill} online={online}
+            error={formError}
+            onCancel={() => { if (!dirty || confirm('Discard unsaved bill changes?')) {resetForm();setFormError('');} }}
           />
         );
       case 'payments':
       case 'all':
         return (
           <AllBillsView
-            visible={activeTab === 'payments' ? visible.filter(b => Number(b.remaining_balance) > 0) : visible}
-            title={activeTab === 'payments' ? 'Record a payment' : 'Bills & Payments'}
+            visible={activeTab==='payments' ? visible.filter(b=>b.remaining_balance>0) : visible}
+            title={activeTab==='payments' ? 'Record a payment' : 'Bills & payments'}
             search={search}
             setSearch={setSearch}
             from={from}
@@ -332,27 +332,25 @@ export default function App() {
             setTo={setTo}
             onEdit={onEditBill}
             onPay={openPayment}
+            loading={loading}
             onDelete={onDeleteBill}
+            onReturn={(b) => { setNotice(''); setReturning(b); setActiveTab('returns'); }}
           />
         );
+      case 'returns':
+        return <ReturnsView key={returning?.sync_id || 'returns'} initialBill={returning} onChanged={load} online={online} />;
       case 'more':
-        return <section className="account-panel">
-          <span className="section-kicker">YOUR WORKSPACE</span><h2>{currentUser.full_name}</h2>
-          <p>@{currentUser.username} · {currentUser.role}</p>
-          <InstallApp />
-          {currentUser.role === 'admin' && <button onClick={() => navigate('users')}>Manage users & staff →</button>}
-          <button className="danger" onClick={handleLogout}>Sign out</button>
-          <p className="muted">Bills and payments are saved online. Connect to the internet before making changes.</p>
-        </section>;
+        return <section className="account-panel"><span className="section-kicker">YOUR WORKSPACE</span><h2>{currentUser.full_name}</h2><p>@{currentUser.username} · {currentUser.role}</p><InstallApp /><button onClick={()=>navigate('returns')}>Returns & supplier credits →</button>{currentUser.role==='admin' && <button onClick={()=>navigate('users')}>Manage users & staff →</button>}<button className="danger" onClick={handleLogout}>Sign out</button><p>Financial records are saved online. {syncStatus?.enabled===false && 'External CEO sync is disabled for this private portal.'}</p></section>;
       case 'users':
         return <UsersView currentUser={currentUser} />;
       default:
-        return <SummaryView totals={totals} items={items} />;
+        return <SummaryView totals={totals} items={items} from={from} to={to} setFrom={setFrom} setTo={setTo} onAddBill={()=>navigate('bills')} onViewBills={()=>navigate('all')} />;
     }
   }
 
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#workspace">Skip to content</a>
       <Sidebar
         tabs={tabs}
         activeTab={activeTab}
@@ -361,129 +359,47 @@ export default function App() {
         onLogout={handleLogout}
       />
 
-      <div className="content-shell">
+      <main className="content-shell" id="workspace" tabIndex={-1}>
         <header className="app-header">
-          <div><small>ZADA PHARMACY</small><h1>{({ summary: 'Overview', all: 'Bills & payments', bills: 'Supplier bill', payments: 'Payments', more: 'Your account', users: 'Users & staff' })[activeTab]}</h1><p className="desktop-subtitle">Your supplier desk, always in reach.</p></div>
-          <button className="header-add" onClick={() => navigate('bills')} aria-label="Add bill"><AppIcon name="bills" /><span>Add bill</span></button>
+          <div><small>ZADA PHARMACY</small><h1>{({summary:'Overview',all:'Bills & payments',bills:'Supplier bill',payments:'Payments',returns:'Returns & credits',more:'Your account',users:'Users & staff'})[activeTab]}</h1><p className="desktop-subtitle">Supplier reconciliation</p></div>
+          <div className="header-tools"><button className="header-add" aria-label="Add bill" onClick={()=>navigate('bills')}><AppIcon name="bills" /><span>Add bill</span></button><span className="today-label">{new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Karachi' })}</span>{['summary', 'all'].includes(activeTab) && <button type="button" className="icon-button" aria-label="Refresh bills" onClick={load} disabled={loading}><Icon name="refresh" className={loading ? 'is-loading' : ''} /></button>}</div>
         </header>
         {!online && <div className="connection-banner" role="status">You’re offline. Reconnect to refresh records or save changes.</div>}
-        {loading && <div className="loading-status" role="status">Refreshing records…</div>}
-        {notice && <div className="notice" role="status">✓ {notice}</div>}
-        {activeTab === 'summary' && <div className="dashboard-actions"><div><span className="section-kicker">THIS PERIOD</span><p>{from} — {to}</p></div><button className="primary" onClick={() => navigate('bills')}>+ New bill</button><button onClick={() => navigate('payments')}>Record payment ↗</button></div>}
-
-        {errorMsg && (
-          <div className="alert-error" style={{ marginBottom: 18 }}>
-            ⚠️ {errorMsg} <button type="button" onClick={load}>Refresh</button>
-          </div>
-        )}
-
-        {renderTab()}
+        {errorMsg && <Feedback>{errorMsg} <button type="button" className="quiet-button" onClick={load} disabled={loading}>Try again</button></Feedback>}
+        {notice && <Feedback tone="success" onDismiss={() => setNotice('')}>{notice}</Feedback>}
+        {syncStatus && (syncStatus.pending > 0 || syncStatus.error) && <Feedback tone="success">Changes saved. {syncStatus.pending} update{syncStatus.pending === 1 ? '' : 's'} waiting to reach CEO reports.{syncStatus.error ? ' Check the connection if this persists.' : ''}</Feedback>}
+        {loading && !items.length && ['summary', 'all'].includes(activeTab) ? <div className="loading-state" role="status"><span className="loading-spinner" />Loading supplier records…</div> : renderTab()}
         <DeveloperCredits />
-      </div>
+      </main>
+      <nav className="mobile-nav" aria-label="Mobile navigation">{[['summary','Home'],['all','Bills'],['payments','Pay'],['more','More']].map(([id,label])=><button key={id} type="button" aria-current={activeTab===id?'page':undefined} onClick={()=>navigate(id)}><AppIcon name={id} /><span>{label}</span></button>)}</nav>
 
-      <nav className="mobile-nav" aria-label="Mobile navigation">
-        {[['summary','Home'],['all','Bills'],['payments','Pay'],['more','More']].map(([id,label]) => <button key={id} type="button" aria-current={activeTab === id ? 'page' : undefined} onClick={() => navigate(id)}><AppIcon name={id} /><span>{label}</span></button>)}
-      </nav>
-
-      {paying && (
-        <div className="overlay">
-          <form ref={modalRef} tabIndex={-1} className="modal payment-modal" onSubmit={pay} role="dialog" aria-modal="true" aria-labelledby="payment-title">
-            <fieldset disabled={saving || !online}>
-            <h2 id="payment-title">Record Payment</h2>
-            {errorMsg && <p className="alert-error" role="alert">{errorMsg}</p>}
-            {!online && <p role="status">Reconnect to save this payment.</p>}
-            <p>
-              {paying.supplier_name} · Balance Rs {money(paying.remaining_balance)}
-            </p>
-            <label>
-              Payment Date
-              <input
-                type="date"
-                value={payment.payment_date}
-                onChange={(e) => setPayment((prev) => ({ ...prev, payment_date: e.target.value }))}
-              />
-            </label>
-            <label>
-              Amount
-              <input
-                type="number" inputMode="decimal" step="0.01" min="0.01"
-                max={paying.remaining_balance}
-                required
-                value={payment.amount}
-                onChange={(e) => setPayment((prev) => ({ ...prev, amount: e.target.value }))}
-              />
-            </label>
-            <label>
-              Mode
-              <select
-                value={payment.payment_mode}
-                onChange={(e) => setPayment((prev) => ({ ...prev, payment_mode: e.target.value }))}
-              >
-                <option>CHEQUE</option>
-                <option>ONLINE_TRANSFER</option>
-                <option>COUNTER_CASH</option>
-                <option>CASH_FROM_AFTAB</option>
-                <option>OTHER</option>
-              </select>
-            </label>
-            <label>
-              Reference / Cheque No.
-              <input
-                value={payment.reference_no}
-                onChange={(e) => setPayment((prev) => ({ ...prev, reference_no: e.target.value }))}
-              />
-            </label>
-            <label>
-              Remarks
-              <textarea
-                value={payment.remarks}
-                onChange={(e) => setPayment((prev) => ({ ...prev, remarks: e.target.value }))}
-              />
-            </label>
-            <button className="primary">{saving ? 'Saving…' : 'Save payment'}</button>
-            </fieldset>
-            <button type="button" disabled={saving} onClick={closePayment}>
-              Cancel
-            </button>
-          </form>
-        </div>
-      )}
-
-      {confirming && (
-        <div className="overlay">
-          <div ref={modalRef} tabIndex={-1} className="modal" role="dialog" aria-modal="true" aria-labelledby="delete-title">
-            <h2 id="delete-title">Confirm deletion</h2>
-            <p>
-              Are you sure you want to delete {confirming.label}? The record will be removed from your active records.
-            </p>
-            <button
-              className="danger"
-              onClick={async () => {
-                try {
-                  if (confirming.kind === 'bill') {
-                    await api.bills.delete(confirming.id);
-                  } else {
-                    await api.payments.delete(confirming.id);
-                  }
-                } catch (delErr) {
-                  if (window.supplierAPI) {
-                    confirming.kind === 'bill'
-                      ? await window.supplierAPI.deleteBill(confirming.id)
-                      : await window.supplierAPI.deletePayment(confirming.id);
-                  } else {
-                    alert(delErr.message);
-                  }
-                }
-                setConfirming(null);
-                await load();
-              }}
-            >
-              Yes, delete
-            </button>
-            <button onClick={() => setConfirming(null)}>Cancel</button>
-          </div>
-        </div>
-      )}
+      {paying && <Modal title="Record payment" onClose={closePayment} busy={savingPayment}>
+        <form className="payment-modal" onSubmit={pay}>
+          <p className="dialog-description">{paying.supplier_name} / Bill {paying.supplier_bill_no || paying.voucher_no || '—'}</p>
+          <div className="dialog-balance"><span>Remaining payable</span><strong>Rs {money(paying.remaining_balance)}</strong></div>
+          <fieldset disabled={savingPayment || !online} className="dialog-fields">
+            <div className="field-grid"><label>Payment date<input autoFocus type="date" required value={payment.payment_date} onChange={e => setPayment(p => ({ ...p, payment_date: e.target.value }))} /></label><label>Amount (Rs)<input type="number" inputMode="decimal" min="0.01" step="0.01" max={paying.remaining_balance} required value={payment.amount} onChange={e => setPayment(p => ({ ...p, amount: e.target.value }))} /></label></div>
+            <label>Payment method<select value={payment.payment_mode} onChange={e => setPayment(p => ({ ...p, payment_mode: e.target.value }))}>{[['CHEQUE','Cheque'],['ONLINE_TRANSFER','Bank transfer'],['COUNTER_CASH','Counter cash'],['CASH_FROM_AFTAB','Cash from Aftab'],['OTHER','Other']].map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+            <label>Reference or cheque number<input maxLength={100} value={payment.reference_no} onChange={e => setPayment(p => ({ ...p, reference_no: e.target.value }))} /></label>
+            <label>Remarks<textarea value={payment.remarks} onChange={e => setPayment(p => ({ ...p, remarks: e.target.value }))} /></label>
+          </fieldset>
+          {paymentError && <Feedback>{paymentError}</Feedback>}
+          <div className="dialog-actions"><button type="button" onClick={closePayment} disabled={savingPayment || !online}>Cancel</button><button className="primary" disabled={savingPayment || !online}>{savingPayment ? 'Saving payment…' : 'Save payment'}</button></div>
+        </form>
+      </Modal>}
+      {confirming && <Modal title="Delete record?" onClose={() => setConfirming(null)} busy={deleting}>
+        <p className="dialog-description">Delete {confirming.label}? The balance and payment history will be recalculated.</p>
+        {deleteError && <Feedback>{deleteError}</Feedback>}
+        <div className="dialog-actions"><button onClick={() => setConfirming(null)} disabled={deleting}>Keep record</button><button className="danger" disabled={deleting || !online} onClick={async () => {
+          if (mutationBusy.current || !online) return;
+          mutationBusy.current=true;
+          setDeleting(true); setDeleteError('');
+          try {
+            if (confirming.kind === 'bill') await api.bills.delete(confirming.id); else await api.payments.delete(confirming.id);
+            setConfirming(null); setNotice('Record deleted.'); await load();
+          } catch (e) { setDeleteError(e.message); } finally { mutationBusy.current=false; setDeleting(false); }
+        }}>{deleting ? 'Deleting…' : 'Delete record'}</button></div>
+      </Modal>}
     </div>
   );
 }

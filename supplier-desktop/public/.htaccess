@@ -23,7 +23,7 @@ RewriteRule ^ https://spms.zadapharmacy.com%{REQUEST_URI} [R=301,L]
 RewriteRule ^\.well-known/acme-challenge/ - [L]
 
 # API includes must never be requested directly.
-RewriteRule ^api/(config|db|jwt)\.php$ - [F,L,NC]
+RewriteRule ^api/(config|db|jwt|ledger|finance)\.php$ - [F,L,NC]
 RewriteRule (^|/)(\.|.*\.(sql|sqlite|log|bak|env|zip|tar|gz)$) - [F,L,NC]
 
 RewriteCond %{HTTP:Authorization} ^(.*)

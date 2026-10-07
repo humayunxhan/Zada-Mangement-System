@@ -66,6 +66,10 @@ async function request(endpoint, options = {}) {
 }
 
 export const api = {
+  returns: {
+    record: data => window.supplierAPI ? window.supplierAPI.recordEvent(data) : request('/api/returns', { method: 'POST', body: JSON.stringify(data) }),
+    syncStatus: () => window.supplierAPI ? window.supplierAPI.syncStatus() : request('/api/returns/sync-status'),
+  },
   // Auth API
   auth: {
     login: async (username, password) => {
@@ -110,6 +114,7 @@ export const api = {
   // Bills API
   bills: {
     list: async (filters = {}) => {
+      if (window.supplierAPI) return window.supplierAPI.list(filters);
       const params = new URLSearchParams();
       if (filters.from) params.append('from', filters.from);
       if (filters.to) params.append('to', filters.to);
@@ -118,17 +123,20 @@ export const api = {
       return request(`/api/bills${query}`);
     },
     save: async (billData) => {
+      if (window.supplierAPI) return window.supplierAPI.saveBill(billData);
       return request('/api/bills', {
         method: 'POST',
         body: JSON.stringify(billData),
       });
     },
     delete: async (syncId) => {
+      if (window.supplierAPI) return window.supplierAPI.deleteBill(syncId);
       return request(`/api/bills/${encodeURIComponent(syncId)}`, {
         method: 'DELETE',
       });
     },
     suppliers: async () => {
+      if (window.supplierAPI) return window.supplierAPI.suppliers();
       return request('/api/bills/suppliers');
     },
   },
@@ -136,12 +144,14 @@ export const api = {
   // Payments API
   payments: {
     add: async (paymentData) => {
+      if (window.supplierAPI) return window.supplierAPI.addPayment(paymentData);
       return request('/api/payments', {
         method: 'POST',
         body: JSON.stringify(paymentData),
       });
     },
     delete: async (syncId) => {
+      if (window.supplierAPI) return window.supplierAPI.deletePayment(syncId);
       return request(`/api/payments/${encodeURIComponent(syncId)}`, {
         method: 'DELETE',
       });
