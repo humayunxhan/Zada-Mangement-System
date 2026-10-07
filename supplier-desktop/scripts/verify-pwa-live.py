@@ -33,6 +33,7 @@ assert fetch('/api/bills')[0]==401
 assert fetch('/api/config.php')[0]==403
 assert fetch('/api/finance.php')[0]==403
 assert fetch('/api/ledger.php')[0]==403
+assert fetch('/api/records.php')[0]==403
 credentials=json.loads(Path(os.environ.get('SPMS_LOGIN_FILE',ROOT/'deploy/initial-login.credentials.json')).read_text())
 status,_,raw=fetch('/api/auth/login',{'username':credentials['username'],'password':credentials['password']})
 assert status==200,'Login failed (do not reset credentials automatically)'
@@ -43,12 +44,14 @@ assert 'no-store' in headers.get('Cache-Control','')
 for bill in json.loads(raw):
  for key in ['net_payable','remaining_balance','pending_credit','returned_amount','ledgerEvents','credit_applied']:
   assert key in bill, 'Missing ledger response field: '+key
- if bill['category']=='PAYABLE':
+ if bill['category'] in ['PAYABLE','BILL_TO_BILL']:
   effective=bill['paid_amount']+bill['credit_applied']-bill['refund_amount']-bill['credit_used']
   assert abs(bill['remaining_balance']-max(0,bill['net_payable']-effective))<0.005
 status,_,raw=fetch('/api/returns/sync-status',token=token)
 assert status==200 and json.loads(raw)['enabled'] is False
 print('PASS: login, authenticated bill read, unauthorized protection and no-store API.')
+for endpoint in ['/api/records/audit','/api/records/backups']:
+ assert fetch(endpoint,token=token)[0]==200,endpoint
 print('PASS: ledger response balances, protected includes and disabled external sync.')
 for url in ['https://zadapharmacy.com/','https://drbakhtzada.com/']:
  with urllib.request.urlopen(url,timeout=25) as response:assert response.status==200

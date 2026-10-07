@@ -1,6 +1,7 @@
 <?php
 require __DIR__.'/../public/api/finance.php';
 require __DIR__.'/../deploy/migrations/001-returns.php';
+require __DIR__.'/../deploy/migrations/002-records.php';
 function check($ok,$message){if(!$ok)throw new RuntimeException($message);}
 function rejects($work,$message){try{$work();}catch(LedgerError $e){return;}throw new RuntimeException('Expected rejection: '.$message);}
 $mysql=in_array('--mysql-private',$argv,true);
@@ -20,8 +21,8 @@ $pdo->exec("CREATE TABLE payments (id INTEGER PRIMARY KEY AUTOINCREMENT,sync_id 
 
 
 }
-migrate_returns($pdo,$mysql);migrate_returns($pdo,$mysql);
-if($mysql)foreach(['bills','payments','supplier_ledger_events','supplier_sync_state','supplier_sync_outbox','spms_migrations'] as $t){
+migrate_returns($pdo,$mysql);migrate_records($pdo,$mysql);migrate_returns($pdo,$mysql);migrate_records($pdo,$mysql);
+if($mysql)foreach(['bills','payments','supplier_ledger_events','supplier_sync_state','supplier_sync_outbox','spms_migrations','supplier_audit_log'] as $t){
  $definition=$pdo->query("SHOW CREATE TABLE $t")->fetch(PDO::FETCH_NUM)[1];
  check(str_contains($definition,'CREATE TEMPORARY TABLE'),'Refuse testing against persistent table '.$t);
 }
@@ -63,3 +64,47 @@ if(isset($argv[1]))foreach(json_decode(file_get_contents($argv[1]),true) as $fix
  foreach($actual as $i=>$b)foreach($fixture['expected'][$i] as $k=>$v)check($b[$k]==$v,'JS/PHP parity: '.$fixture['name'].' '.$k);
 }
 echo "PASS: PHP ledger, return/refund/adjustment, retry, limits, historical locks, period filters, rollback, additive migration and JS parity.\n";
+// Exercise management entirely inside the same isolated test database.
+$private=sys_get_temp_dir().'/spms-records-test-'.bin2hex(random_bytes(8));mkdir($private,0700);
+$cfg=['private_dir'=>$private];
+try {
+ $b2b=bill('b2b');$b2b['category']='BILL_TO_BILL';finance_bill($pdo,$b2b,'tester');
+ finance_payment($pdo,payment('b2b-pay','b2b',50),'tester');check(rows($pdo)['b2b']['remaining_balance']==50,'Bill-to-bill accepts payments');
+ finance_event($pdo,event('b2b-return','RETURN','b2b',80),'tester');check(rows($pdo)['b2b']['pending_credit']==30,'Bill-to-bill credit');
+ finance_event($pdo,event('b2b-refund','REFUND','b2b',10,'2026-10-04'),'tester');
+ $first=bill('invoice-one');$first['supplier_bill_no']=' INV  123 ';finance_bill($pdo,$first,'tester');
+ $second=bill('invoice-two');$second['supplier_bill_no']='inv 123';
+ check(count(records_duplicates($second,finance_read($pdo)['bills']))===1,'Normalized duplicate match');
+ rejects(fn()=>finance_bill($pdo,$second,'tester'),'Duplicate invoice rejected inside transaction');
+ $second['duplicate_acknowledged']=['invoice-one'];finance_bill($pdo,$second,'tester');
+ $beforeAudit=$pdo->query('SELECT COUNT(*) FROM supplier_audit_log')->fetchColumn();finance_bill($pdo,$second,'tester');
+ check($pdo->query('SELECT COUNT(*) FROM supplier_audit_log')->fetchColumn()===$beforeAudit,'Identical retry does not duplicate audit');
+ $operator=['username'=>'staff','role'=>'operator'];$admin=['username'=>'tester','role'=>'admin'];
+ foreach(['records/backups','records/audit','records/restore'] as $path){[, $status]=records_route($pdo,$cfg,$operator,$path,'POST',[],[]);check($status===403,'Operator blocked from '.$path);}
+ [$dup,$status]=records_route($pdo,$cfg,$operator,'records/duplicates','POST',$second,[]);check($status===200&&count($dup)===1,'Operator duplicate lookup');
+ $export=records_export($pdo,['dataset'=>'bills','ids'=>['target']]);check(count($export['rows'])===1&&$export['rows'][0]['credit_applied']==40,'Filtered export preserves cross-bill credit');
+ $export=records_export($pdo,['dataset'=>'payments','ids'=>['b2b']]);check(count($export['rows'])===1,'Payment export scope');
+ $export=records_export($pdo,['dataset'=>'events','ids'=>['b2b-return']]);check(count($export['rows'])===1&&$export['rows'][0]['kind']==='RETURN','Event export scope');
+ $snapshot=records_backup($pdo,$cfg,'tester');$input=records_read_backup($cfg,$snapshot['id']);
+ check(!isset($input['data']['users'])&&!str_contains(records_json($input),'password_hash'),'Backup excludes accounts and credentials');
+ check((fileperms(records_file($cfg,$snapshot['id']))&0777)===0600,'Backup private permissions');
+ $decoded=records_decode($input);check(count($decoded['bills'])>0,'Backup round trip validates');
+ $corrupt=$input;$corrupt['data']['bills'][0]['actual_amount']=1;rejects(fn()=>records_decode($corrupt),'Corrupt checksum');
+ rejects(fn()=>records_file($cfg,'../config.php'),'Backup path traversal');
+ $bad=records_snapshot($pdo);$bad['events']=[];$erased=records_encode($bad);
+ rejects(fn()=>records_restore($pdo,$cfg,$erased,'tester'),'Cannot erase settlement history');
+ $foreign=$input;$foreign['sync']['sourceId']='different-database';$foreign['checksum']=hash('sha256',records_json(['data'=>$foreign['data'],'sync'=>$foreign['sync']]));
+ rejects(fn()=>records_restore($pdo,$cfg,$foreign,'tester'),'Cross-database restore');
+ finance_bill($pdo,bill('after-backup'),'tester');
+ $result=records_restore($pdo,$cfg,$input,'tester');check(!isset(rows($pdo)['after-backup']),'Restored later unprotected bill to tombstone');
+ check(is_file(records_file($cfg,$result['safetyBackup'])),'Restore safety snapshot');
+ check(rows($pdo)['b2b']['pending_credit']==20&&rows($pdo)['target']['credit_applied']==40,'Restore preserves settlements');
+ $logs=records_audit_list($pdo,[]);check($logs[0]['action']==='RESTORE','Restore audited');
+ check(count(records_audit_list($pdo,['action'=>'DUPLICATE_OVERRIDE']))===1,'Duplicate override audited');
+ $count=count(records_backups($cfg));records_automatic_backup($pdo,$cfg);check(count(records_backups($cfg))===$count,'Automatic backup not repeated within 24 hours');
+ echo "PASS: bill-to-bill, duplicate overrides, exports, audit, private backups, checked restore, settlement protection and role restrictions.\n";
+} finally {
+ foreach(glob($private.'/financial-backups/*') as $file)unlink($file);
+ if(is_file($private.'/financial-backups/.schedule-lock'))unlink($private.'/financial-backups/.schedule-lock');
+ if(is_dir($private.'/financial-backups'))rmdir($private.'/financial-backups');rmdir($private);
+}

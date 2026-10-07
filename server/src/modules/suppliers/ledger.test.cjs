@@ -65,3 +65,25 @@ test('currency calculations stay exact at two decimals', () => {
   const b = ledger.decorate([bill('a', 0.3)], [payment(0.2)], [event('RETURN', 0.1)])[0];
   assert.equal(b.netPayable, 0.2); assert.equal(b.remainingBalance, 0); assert.equal(b.pendingCredit, 0);
 });
+
+
+test('bill-to-bill bills stay unpaid until dated partial or full payments are recorded', () => {
+  const bills = [{ ...bill(), category: 'BILL_TO_BILL' }, { ...bill('next', 7000), category: 'BILL_TO_BILL', postingDate: '2026-10-07', billDate: '2026-10-07' }];
+  let [old, next] = ledger.decorate(bills, [], []);
+  assert.equal(old.netPayable, 10000); assert.equal(old.remainingBalance, 10000); assert.equal(old.paymentStatus, 'UNPAID');
+  assert.equal(next.remainingBalance, 7000); // Adding the next bill is not a payment.
+  const p = { ...payment(4000), paymentDate: '2026-10-07' };
+  assert.doesNotThrow(() => ledger.validatePayment(p, bills, [], []));
+  [old] = ledger.decorate(bills, [p], []);
+  assert.equal(old.remainingBalance, 6000); assert.equal(old.paymentStatus, 'PARTIAL');
+  const final = { ...p, syncId: 'final', amount: 6000 };
+  assert.doesNotThrow(() => ledger.validatePayment(final, bills, [p], []));
+  assert.throws(() => ledger.validatePayment({ ...final, amount: 6001 }, bills, [p], []), /remaining bill balance/);
+  [old, next] = ledger.decorate(bills, [p, final], []);
+  assert.equal(old.paymentStatus, 'COMPLETE'); assert.equal(old.remainingBalance, 0); assert.equal(next.remainingBalance, 7000);
+  for (const category of ['SALE_BASED', 'DISPUTED']) {
+    const b = { ...bill(), category };
+    assert.equal(ledger.decorate([b], [], [])[0].remainingBalance, 0);
+    assert.throws(() => ledger.validatePayment(p, [b], [], []), /active payable/);
+  }
+});

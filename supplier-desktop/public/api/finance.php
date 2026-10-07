@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__.'/ledger.php';
+require_once __DIR__.'/records.php';
 function finance_state($pdo) {
     return ['bills'=>$pdo->query('SELECT * FROM bills ORDER BY posting_date DESC, id DESC')->fetchAll(PDO::FETCH_ASSOC),
         'payments'=>$pdo->query('SELECT * FROM payments ORDER BY payment_date, id')->fetchAll(PDO::FETCH_ASSOC),
@@ -26,7 +27,8 @@ function finance_save_row($pdo,$table,$fields,$old,$actor) {
         $query='UPDATE '.$table.' SET '.implode(', ',array_map(fn($k)=>$k.' = ?',$names)).' WHERE sync_id = ?';$values[]=$fields['sync_id'];
     } else { $names[]='created_by';$values[]=$actor;$query='INSERT INTO '.$table.' ('.implode(',',$names).') VALUES ('.implode(',',array_fill(0,count($names),'?')).')'; }
     $pdo->prepare($query)->execute($values);
-    $stmt=$pdo->prepare('SELECT * FROM '.$table.' WHERE sync_id = ?');$stmt->execute([$fields['sync_id']]);return $stmt->fetch(PDO::FETCH_ASSOC);
+    $stmt=$pdo->prepare('SELECT * FROM '.$table.' WHERE sync_id = ?');$stmt->execute([$fields['sync_id']]);$row=$stmt->fetch(PDO::FETCH_ASSOC);
+    records_audit($pdo,$actor,$old?'UPDATE':'CREATE',$table==='bills'?'bill':'payment',$fields['sync_id'],$old,$row);return $row;
 }
 function finance_same_fields($old,$fields,$numeric=[]) {
     foreach($fields as $k=>$v) if (in_array($k,$numeric,true) ? ledger_cents($old[$k])!==ledger_cents($v) : (string)($old[$k]??'')!==(string)$v) return false;
@@ -41,10 +43,12 @@ function finance_bill($pdo,$b,$actor) {
         'supplier_name'=>ledger_text($b['supplier_name']??'',255),'supplier_bill_no'=>ledger_text($b['supplier_bill_no']??'',100),'voucher_no'=>ledger_text($b['voucher_no']??'',100),
         'total_bill_amount'=>$total,'tax_percent'=>$tax,'tax_amount'=>$taxAmount,'actual_amount'=>round($total-$taxAmount,2),'category'=>$category,'remarks'=>ledger_text($b['remarks']??'')];
     if(!$fields['supplier_name'])ledger_fail('Supplier name is required.');
-    return finance_mutate($pdo,function($s)use($pdo,$fields,$actor){
+    return finance_mutate($pdo,function($s)use($pdo,$fields,$actor,$b){
         $old=array_column($s['bills'],null,'sync_id')[$fields['sync_id']]??null;
         // Identical retries remain safe even if a later return locked the bill.
         if($old && finance_same_fields($old,$fields,['total_bill_amount','tax_percent','tax_amount','actual_amount']))return $old;
+        $duplicates=records_check_duplicate($b,$s['bills']);
+        if($duplicates)records_audit($pdo,$actor,'DUPLICATE_OVERRIDE','bill',$fields['sync_id'],null,null,['matches'=>$duplicates]);
         ledger_unlocked($fields['sync_id'],$s['events']);
         return finance_save_row($pdo,'bills',$fields,$old,$actor);
     });
@@ -64,16 +68,18 @@ function finance_event($pdo,$input,$actor) {
         $e=ledger_validate_event($input,$s['bills'],$s['payments'],$s['events']);
         foreach($s['events'] as $old)if($old['syncId']===$e['syncId'])return $old;
         $pdo->prepare('INSERT INTO supplier_ledger_events (sync_id,kind,bill_sync_id,target_bill_sync_id,event_date,amount,payment_mode,reference_no,remarks,created_by) VALUES (?,?,?,?,?,?,?,?,?,?)')->execute([$e['syncId'],$e['kind'],$e['billSyncId'],$e['targetBillSyncId'],$e['eventDate'],$e['amount'],$e['paymentMode'],$e['referenceNo'],$e['remarks'],$actor]);
+        $stmt=$pdo->prepare('SELECT * FROM supplier_ledger_events WHERE sync_id=?');$stmt->execute([$e['syncId']]);
+        records_audit($pdo,$actor,$e['kind'],'event',$e['syncId'],null,$stmt->fetch(PDO::FETCH_ASSOC));
         return $e;
     });
 }
-function finance_delete($pdo,$table,$id) {
-    return finance_mutate($pdo,function($s)use($pdo,$table,$id){
+function finance_delete($pdo,$table,$id,$actor='system') {
+    return finance_mutate($pdo,function($s)use($pdo,$table,$id,$actor){
         $record=array_column($s[$table],null,'sync_id')[$id]??null;if(!$record)ledger_fail('Record not found.');
         if(!empty($record['deleted_at']))return ['success'=>true,'syncId'=>$id];
         $billId=$table==='bills'?$id:$record['bill_sync_id'];ledger_unlocked($billId,$s['events']);
         if($table==='bills')foreach($s['payments'] as $p)if($p['bill_sync_id']===$id && empty($p['deleted_at']))ledger_fail('Delete payments before deleting this bill, or record a stock return.');
-        $pdo->prepare('UPDATE '.$table.' SET deleted_at = CURRENT_TIMESTAMP WHERE sync_id = ?')->execute([$id]);return ['success'=>true,'syncId'=>$id];
+        $pdo->prepare('UPDATE '.$table.' SET deleted_at = CURRENT_TIMESTAMP WHERE sync_id = ?')->execute([$id]);records_audit($pdo,$actor,'DELETE',$table==='bills'?'bill':'payment',$id,$record,array_merge($record,['deleted_at'=>gmdate('Y-m-d H:i:s')]));return ['success'=>true,'syncId'=>$id];
     });
 }
 function finance_route($pdo,$path,$method,$query,$body,$actor) {
@@ -94,6 +100,6 @@ function finance_route($pdo,$path,$method,$query,$body,$actor) {
     if($path==='bills' && $method==='POST')return [finance_bill($pdo,$body,$actor),200];
     if($path==='payments' && $method==='POST')return [finance_payment($pdo,$body,$actor),200];
     if($path==='returns' && $method==='POST')return [finance_event($pdo,$body,$actor),201];
-    if(preg_match('#^(bills|payments)/([a-zA-Z0-9_-]{1,64})$#D',$path,$m)&&$method==='DELETE')return [finance_delete($pdo,$m[1],$m[2]),200];
+    if(preg_match('#^(bills|payments)/([a-zA-Z0-9_-]{1,64})$#D',$path,$m)&&$method==='DELETE')return [finance_delete($pdo,$m[1],$m[2],$actor),200];
     return [['error'=>'API endpoint not found'],404];
 }

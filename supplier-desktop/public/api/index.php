@@ -13,6 +13,7 @@ set_exception_handler(function ($error) {
     echo json_encode(['error' => 'Service temporarily unavailable. Please contact the administrator.']);
 });
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/finance.php';
 
 // Set JSON response headers and CORS
 header('Content-Type: application/json; charset=utf-8');
@@ -213,7 +214,10 @@ if ($path === 'auth/change-password' && $method === 'POST') {
 
     $newHash = password_hash($next, PASSWORD_BCRYPT);
     $up = $pdo->prepare('UPDATE users SET password_hash = ? WHERE id = ?');
-    $up->execute([$newHash, $authUser['id']]);
+    finance_mutate($pdo,function()use($pdo,$up,$newHash,$authUser){
+        $up->execute([$newHash,$authUser['id']]);
+        records_audit($pdo,$authUser['username'],'PASSWORD_CHANGE','account',(string)$authUser['id']);
+    });
 
     send_json(['success' => true, 'message' => 'Password updated successfully']);
 }
@@ -253,12 +257,16 @@ if ($path === 'auth/users' && $method === 'POST') {
 
     $hash = password_hash($password, PASSWORD_BCRYPT);
     $ins = $pdo->prepare('INSERT INTO users (username, password_hash, full_name, role, status) VALUES (?, ?, ?, ?, "active")');
-    $ins->execute([$username, $hash, $full_name, $role]);
+    $newId=finance_mutate($pdo,function()use($pdo,$ins,$username,$hash,$full_name,$role,$authUser){
+        $ins->execute([$username,$hash,$full_name,$role]);$id=(int)$pdo->lastInsertId();
+        records_audit($pdo,$authUser['username'],'CREATE','account',(string)$id,null,['username'=>$username,'full_name'=>$full_name,'role'=>$role,'status'=>'active']);
+        return $id;
+    });
 
     send_json([
         'success' => true,
         'user' => [
-            'id' => (int)$pdo->lastInsertId(),
+            'id' => $newId,
             'username' => $username,
             'full_name' => $full_name,
             'role' => $role,
@@ -281,7 +289,11 @@ if (preg_match('#^auth/users/(\d+)/status$#', $path, $m) && $method === 'PATCH')
     $status = ($body['status'] ?? '') === 'active' ? 'active' : 'inactive';
 
     $up = $pdo->prepare('UPDATE users SET status = ? WHERE id = ?');
-    $up->execute([$status, $targetId]);
+    finance_mutate($pdo,function()use($pdo,$up,$status,$targetId,$authUser){
+        $stmt=$pdo->prepare('SELECT id,username,full_name,role,status FROM users WHERE id=?');$stmt->execute([$targetId]);$before=$stmt->fetch(PDO::FETCH_ASSOC);
+        $up->execute([$status,$targetId]);
+        if($before)records_audit($pdo,$authUser['username'],'STATUS_CHANGE','account',(string)$targetId,$before,array_merge($before,['status'=>$status]));
+    });
 
     send_json(['success' => true, 'status' => $status]);
 }
@@ -290,11 +302,13 @@ if (preg_match('#^auth/users/(\d+)/status$#', $path, $m) && $method === 'PATCH')
 require_once __DIR__ . '/finance.php';
 $actor = get_auth_user();
 try {
+    try { records_automatic_backup($pdo,$cfg); } catch(Throwable $e) { error_log('SPMS automatic backup failed: '.get_class($e)); }
     $body = in_array($method, ['POST', 'PUT', 'PATCH'], true) ? get_json_body() : [];
     if (!is_array($body)) throw new LedgerError('Invalid request body.');
     // Preserve older clients that let the server assign identifiers.
     if ($method === 'POST' && in_array($path, ['bills', 'payments'], true) && empty($body['sync_id'])) $body['sync_id'] = generate_uuid();
     if ($method === 'POST' && $path === 'returns' && empty($body['syncId'])) $body['syncId'] = generate_uuid();
+    if (str_starts_with($path,'records/')) { [$result,$code]=records_route($pdo,$cfg,$actor,$path,$method,$body,$_GET); send_json($result,$code); }
     [$result, $code] = finance_route($pdo, $path, $method, $_GET, $body, $actor['username']);
     send_json($result, $code);
 } catch (LedgerError $e) { send_json(['error' => $e->getMessage()], 400); }

@@ -23,7 +23,7 @@ remote(f"umask 077\nmkdir -p '{STAGE}' '{PRIVATE}/backups' '{PRIVATE}/integratio
 with io.BytesIO() as stream:
     with tarfile.open(fileobj=stream, mode='w:gz') as tar:
         tar.add(ROOT/'dist-php', arcname='release')
-        for name in ['apply-returns.php', 'backup-database.php', 'migrations/001-returns.php']:
+        for name in ['apply-returns.php', 'backup-database.php', 'migrations/001-returns.php', 'migrations/002-records.php']:
             tar.add(ROOT/'deploy'/name, arcname='tools/'+name)
     subprocess.run(SSH+[f"tar -xzf - -C '{STAGE}'"], input=stream.getvalue(), check=True)
 remote(f"""umask 077

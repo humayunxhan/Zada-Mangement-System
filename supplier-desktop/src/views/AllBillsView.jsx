@@ -1,4 +1,5 @@
 import React from 'react';
+import ExportControls from '../components/ExportControls';
 import Icon from '../components/Icon';
 
 const money = (v) => Number(v || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -70,6 +71,8 @@ export default function AllBillsView({ visible, search, setSearch, from, setFrom
   const filteredList = visible.filter(
     (b) => (supplierFilter === 'All' || b.supplier_name === supplierFilter) && matchesStatus(b),
   ).sort((a, b) => {
+    const dateOrder = String(b.posting_date || '').localeCompare(String(a.posting_date || ''));
+    if (dateOrder) return dateOrder;
     const left = String(a.voucher_no ?? '').trim();
     const right = String(b.voucher_no ?? '').trim();
     if (!left) return right ? 1 : 0;
@@ -96,19 +99,23 @@ export default function AllBillsView({ visible, search, setSearch, from, setFrom
     { gross: 0, actual: 0, paid: 0, balance: 0 },
   );
 
-  const pageTotals = pageSlice.reduce((acc, b) => {
-    acc.gross   += Number(b.total_bill_amount  || 0);
-    acc.tax     += Number(b.tax_amount         || 0);
-    acc.actual  += Number(b.net_payable        || 0);
-    acc.paid    += Number(b.paid_amount        || 0);
-    acc.balance += Number(b.remaining_balance  || 0);
-    return acc;
-  }, { gross: 0, tax: 0, actual: 0, paid: 0, balance: 0 });
-
-  // Keep one table so date grouping cannot override voucher order across dates.
-  const sortedGroups = pageSlice.length ? [{
-    date: 'Abuzar voucher: Highest first', items: pageSlice, totals: pageTotals,
-  }] : [];
+  // Group the paginated records by posting date, newest first.
+  // Voucher order stays descending within each date.
+  const groups = new Map();
+  pageSlice.forEach(b => {
+    const date = b.posting_date || 'Undated';
+    if (!groups.has(date)) groups.set(date, {
+      date, items: [], totals: { gross: 0, tax: 0, actual: 0, paid: 0, balance: 0 },
+    });
+    const group = groups.get(date);
+    group.items.push(b);
+    group.totals.gross += Number(b.total_bill_amount || 0);
+    group.totals.tax += Number(b.tax_amount || 0);
+    group.totals.actual += Number(b.net_payable || 0);
+    group.totals.paid += Number(b.paid_amount || 0);
+    group.totals.balance += Number(b.remaining_balance || 0);
+  });
+  const sortedGroups = [...groups.values()];
 
   return (
     <section style={S.page} className="all-bills-view" aria-busy={loading}>
@@ -201,6 +208,7 @@ export default function AllBillsView({ visible, search, setSearch, from, setFrom
         </div>
       )}
 
+      <ExportControls ids={filteredList.map(b => b.sync_id)} disabled={loading || !filteredList.length} />
       <div className="mobile-bill-list">
         {pageSlice.length === 0 && <div className="mobile-empty"><span>✓</span><h3>No bills here</h3><p>Try another date range or filter. Add a bill to get started.</p></div>}
         {pageSlice.map(b => <article className="mobile-bill-card" key={b.sync_id}>
@@ -210,7 +218,7 @@ export default function AllBillsView({ visible, search, setSearch, from, setFrom
           </button>
           <div className="bill-card-amounts"><div><small>Payable</small><strong>Rs {money(b.net_payable)}</strong></div><div><small>Remaining</small><strong className="balance">Rs {money(b.remaining_balance)}</strong></div></div>
           <div className="bill-card-actions"><button type="button" onClick={() => toggleBill(b.sync_id)} aria-expanded={expandedBills.has(b.sync_id)}>{expandedBills.has(b.sync_id) ? 'Hide details ↑' : 'Details ↓'}</button><button type="button" className="primary" onClick={() => onPay(b)} disabled={Number(b.remaining_balance) <= 0}>Record payment</button></div>
-          {b.category==='PAYABLE' && Number(b.actual_amount)>Number(b.returned_amount||0) && <div className="bill-card-actions"><button onClick={()=>onReturn(b)}>Return stock</button></div>}{expandedBills.has(b.sync_id) && <div className="bill-card-details"><p>Returned Rs {money(b.returned_amount)} · Pending credit Rs {money(b.pending_credit)}</p>
+          {['PAYABLE','BILL_TO_BILL'].includes(b.category) && Number(b.actual_amount)>Number(b.returned_amount||0) && <div className="bill-card-actions"><button onClick={()=>onReturn(b)}>Return stock</button></div>}{expandedBills.has(b.sync_id) && <div className="bill-card-details"><p>Returned Rs {money(b.returned_amount)} · Pending credit Rs {money(b.pending_credit)}</p>
             <dl><div><dt>Bill date</dt><dd>{b.bill_date}</dd></div><div><dt>Voucher</dt><dd>{b.voucher_no || '—'}</dd></div><div><dt>Gross</dt><dd>Rs {money(b.total_bill_amount)}</dd></div><div><dt>Tax ({b.tax_percent}%)</dt><dd>Rs {money(b.tax_amount)}</dd></div><div><dt>Total paid</dt><dd>Rs {money(b.paid_amount)}</dd></div><div><dt>Category</dt><dd>{b.category?.replaceAll('_',' ')}</dd></div></dl>
             {b.remarks && <p>{b.remarks}</p>}
             {b.ledgerEvents?.map(e=><div className="mobile-payment" key={e.syncId}><div><strong>{e.kind} · Rs {money(e.amount)}</strong><small>{e.eventDate} · {e.remarks}</small></div></div>)}<h4>Payments ({b.payments?.length || 0})</h4>
@@ -293,7 +301,7 @@ export default function AllBillsView({ visible, search, setSearch, from, setFrom
                             Rs {money(b.remaining_balance)}
                           </span>
                         </Td>
-                        <Td align="center"><StatusBadge status={b.payment_status} />
+                        <Td align="center"><StatusBadge status={b.payment_status} />{b.category === 'BILL_TO_BILL' && <small style={S.metaSub}>Bill to bill</small>}
                           {b.returned_amount > 0 && <small style={S.metaSub}>{b.return_status === 'RETURNED' ? 'Returned' : 'Partial return'} · {b.last_return_date}<br />Rs {money(b.returned_amount)}</small>}
                           {b.pending_credit > 0 && <small style={{...S.metaSub,color:'#a78bfa'}}>Credit pending Rs {money(b.pending_credit)}</small>}
                           {b.credit_applied > 0 && <small style={S.metaSub}>Credit applied Rs {money(b.credit_applied)}</small>}
@@ -322,7 +330,7 @@ export default function AllBillsView({ visible, search, setSearch, from, setFrom
                           <div style={S.actions}>
                             {!b.ledgerEvents?.length && <ActionBtn onClick={() => onEdit(b)}>Edit</ActionBtn>}
                             {b.remaining_balance > 0 && <ActionBtn onClick={() => onPay(b)} accent>Pay</ActionBtn>}
-                            {b.category === 'PAYABLE' && Number(b.actual_amount) > Number(b.returned_amount || 0) && <ActionBtn onClick={() => onReturn(b)}>Return</ActionBtn>}
+                            {['PAYABLE', 'BILL_TO_BILL'].includes(b.category) && Number(b.actual_amount) > Number(b.returned_amount || 0) && <ActionBtn onClick={() => onReturn(b)}>Return</ActionBtn>}
                             {!b.ledgerEvents?.length && !b.payments?.length && <ActionBtn onClick={() => onDelete(b)} danger>Delete</ActionBtn>}
                           </div>
                         </Td>

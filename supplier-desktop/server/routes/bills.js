@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { getPool } from '../db.js';
 import { authenticateToken } from '../middleware/auth.js';
 
+import records from '../../shared/records.cjs';
 import ledger from '../../../server/src/modules/suppliers/ledger.cjs';
 import { transaction, ensureUnlocked } from '../ledger-store.js';
 
@@ -82,6 +83,7 @@ router.post('/', async (req, res) => {
     ledger.date(b.posting_date); ledger.date(b.bill_date);
     if (!Number.isFinite(total) || !Number.isFinite(tax) || total <= 0 || tax < 0 || tax > 100) { const e = new Error('Enter a positive bill amount and tax between 0 and 100.'); e.status = 400; throw e; }
     if (!String(b.supplier_name || '').trim()) { const e = new Error('Supplier name is required.'); e.status = 400; throw e; }
+    records.checkDuplicate(b, state.bills);
     const [existing] = await pool.query('SELECT id FROM bills WHERE sync_id = ?', [syncId]);
 
     if (existing.length > 0) {
@@ -141,7 +143,7 @@ router.post('/', async (req, res) => {
 
     const [saved] = await pool.query('SELECT * FROM bills WHERE sync_id = ?', [syncId]);
     return saved[0];
-    });
+    }, req.user.username, { duplicateAcknowledged: b.duplicate_acknowledged || [] });
     res.json(savedBill);
   } catch (err) {
     console.error('Error saving bill:', err);
@@ -157,7 +159,7 @@ router.delete('/:syncId', async (req, res) => {
       ensureUnlocked(syncId, state);
       if (state.payments.some(p => p.bill_sync_id === syncId && !p.deleted_at)) { const e = new Error('Delete payments before deleting this bill, or record a stock return.'); e.status = 400; throw e; }
       await pool.query('UPDATE bills SET deleted_at = CURRENT_TIMESTAMP WHERE sync_id = ?', [syncId]);
-    });
+    }, req.user.username);
     res.json({ success: true, syncId });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });

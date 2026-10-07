@@ -1,6 +1,7 @@
 <?php
 // PHP counterpart of server/src/modules/suppliers/ledger.cjs.
 // All financial calculations use integer cents; historical rows remain intact.
+function ledger_payable($bill) { return in_array($bill['category'] ?? '', ['PAYABLE','BILL_TO_BILL'], true); }
 class LedgerError extends RuntimeException {}
 function ledger_fail($message) { throw new LedgerError($message); }
 function ledger_cents($n) { return (int) round((float)$n * 100); }
@@ -48,14 +49,14 @@ function ledger_decorate($bills, $payments, $events) {
             }
             if ($e['kind']==='ADJUSTMENT' && $e['targetBillSyncId']===$id) $received+=$amount;
         }
-        $net=max(0,ledger_cents($b['actual_amount'])-$returned); $excluded=$b['category']!=='PAYABLE';
+        $net=max(0,ledger_cents($b['actual_amount'])-$returned); $excluded=!ledger_payable($b);
         $effective=$paid+$received-$refunded-$used;
         $remaining=$excluded ? 0 : max(0,$net-$effective); $credit=$excluded ? 0 : max(0,$effective-$net);
         $returnStatus=$returned>0 ? ($net===0 ? 'RETURNED':'PARTIALLY_RETURNED'):'NONE';
         $status=$excluded ? $b['category'] : ($net===0 && $returned>0 ? 'RETURNED' : ($remaining===0 ? ($credit>0?'OVERPAID':'COMPLETE') : ($effective>0?'PARTIAL':'UNPAID')));
         foreach (['total_bill_amount','tax_percent','tax_amount','actual_amount'] as $k) $b[$k]=(float)$b[$k];
-        $b['id']=(int)$b['id'];
-        $b['payments']=array_map(function($p){$p['amount']=(float)$p['amount'];$p['id']=(int)$p['id'];return $p;},$linked);
+        $b['id']=(int)($b['id']??0);
+        $b['payments']=array_map(function($p){$p['amount']=(float)$p['amount'];$p['id']=(int)($p['id']??0);return $p;},$linked);
         $b['ledgerEvents']=$history;
         foreach (['paid_amount'=>$paid,'returned_amount'=>$returned,'net_payable'=>$excluded?0:$net,'refund_amount'=>$refunded,'credit_used'=>$used,'credit_applied'=>$received,'remaining_balance'=>$remaining,'pending_credit'=>$credit] as $key=>$value) $b[$key]=$value/100;
         $b['payment_status']=$status; $b['return_status']=$returnStatus; $b['credit_status']=$credit>0?'CREDIT_PENDING':($returned>0 && ($refunded+$used)>0?'SETTLED':'NONE'); $b['last_return_date']=$lastReturn;
@@ -87,7 +88,7 @@ function ledger_validate_event($input,$bills,$payments,$events) {
     }
     $rows=array_column(ledger_decorate($bills,$payments,$events),null,'sync_id');
     $source=$rows[$e['billSyncId']] ?? null;
-    if (!$source || $source['category']!=='PAYABLE') ledger_fail('Select an active payable bill.');
+    if (!$source || !ledger_payable($source)) ledger_fail('Select an active payable bill.');
     ledger_chronological($source,$e['eventDate']);
     $amount=ledger_cents($e['amount']);
     if ($e['kind']==='RETURN') {
@@ -97,7 +98,7 @@ function ledger_validate_event($input,$bills,$payments,$events) {
         if ($amount>ledger_cents($source['pending_credit'])) ledger_fail('Amount exceeds available supplier credit.');
         if ($e['kind']==='ADJUSTMENT') {
             $target=$rows[$e['targetBillSyncId']] ?? null;
-            if (!$target || $target['sync_id']===$source['sync_id'] || $target['category']!=='PAYABLE' || mb_strtolower(trim($target['supplier_name']))!==mb_strtolower(trim($source['supplier_name']))) ledger_fail('Choose another payable bill from the same supplier.');
+            if (!$target || $target['sync_id']===$source['sync_id'] || !ledger_payable($target) || mb_strtolower(trim($target['supplier_name']))!==mb_strtolower(trim($source['supplier_name']))) ledger_fail('Choose another payable bill from the same supplier.');
             ledger_chronological($target,$e['eventDate']);
             if ($amount>ledger_cents($target['remaining_balance'])) ledger_fail('Adjustment exceeds the target bill balance.');
         }
@@ -112,7 +113,7 @@ function ledger_validate_payment($p,$bills,$payments,$events) {
     foreach ($payments as $old) if ($old['sync_id']===$p['sync_id']) { ledger_unlocked($old['bill_sync_id'],$events);ledger_unlocked($p['bill_sync_id'],$events); }
     $remaining=array_values(array_filter($payments,fn($old)=>$old['sync_id']!==$p['sync_id']));
     $rows=array_column(ledger_decorate($bills,$remaining,$events),null,'sync_id');$bill=$rows[$p['bill_sync_id']] ?? null;
-    if (!$bill || $bill['category']!=='PAYABLE') ledger_fail('Select an active payable bill.');
+    if (!$bill || !ledger_payable($bill)) ledger_fail('Select an active payable bill.');
     ledger_chronological($bill,$p['payment_date'],false);
     if (ledger_cents($p['amount'])>ledger_cents($bill['remaining_balance'])) ledger_fail('Payment exceeds the remaining bill balance.');
 }

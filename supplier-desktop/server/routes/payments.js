@@ -57,7 +57,7 @@ router.post('/', async (req, res) => {
 
     const [saved] = await pool.query('SELECT * FROM payments WHERE sync_id = ?', [syncId]);
     return saved[0];
-    });
+    }, req.user.username);
     res.json(savedPayment);
   } catch (err) {
     console.error('Error saving payment:', err);
@@ -73,7 +73,7 @@ router.delete('/:syncId', async (req, res) => {
       const payment = state.payments.find(p => p.sync_id === syncId);
       if (payment) ensureUnlocked(payment.bill_sync_id, state);
       await pool.query('UPDATE payments SET deleted_at = CURRENT_TIMESTAMP WHERE sync_id = ?', [syncId]);
-    });
+    }, req.user.username);
     res.json({ success: true, syncId });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });

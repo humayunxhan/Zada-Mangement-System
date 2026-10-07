@@ -10,6 +10,7 @@ function positive(value) {
   if (!Number.isFinite(Number(value)) || !Number.isSafeInteger(cents(value)) || cents(value) <= 0) fail('Amount must be greater than zero and within the supported currency range.');
   return money(value);
 }
+const isPayable = bill => ['PAYABLE', 'BILL_TO_BILL'].includes(bill?.category);
 function decorate(bills, payments, events = []) {
   return bills.map(b => {
     const linked = payments.filter(p => p.billSyncId === b.syncId);
@@ -21,7 +22,7 @@ function decorate(bills, payments, events = []) {
     const used = sum(e => e.kind === 'ADJUSTMENT' && e.billSyncId === b.syncId);
     const received = sum(e => e.kind === 'ADJUSTMENT' && e.targetBillSyncId === b.syncId);
     const net = Math.max(0, cents(b.actualAmount) - returned);
-    const excluded = b.category !== 'PAYABLE';
+    const excluded = !isPayable(b);
     const effective = paid + received - refunded - used;
     const remaining = excluded ? 0 : Math.max(0, net - effective);
     const credit = excluded ? 0 : Math.max(0, effective - net);
@@ -41,7 +42,7 @@ function validateEvent(event, bills, payments, events) {
   if (existing) { if (!sameEvent(existing, e)) fail('This reference was already used for a different transaction.'); return e; }
   const decorated = decorate(bills, payments, events);
   const source = decorated.find(b => b.syncId === e.billSyncId);
-  if (!source || source.category !== 'PAYABLE') fail('Select an active payable bill.');
+  if (!source || !isPayable(source)) fail('Select an active payable bill.');
   const chronological = bill => {
     const latest = [bill.postingDate, bill.billDate, ...bill.payments.map(p => p.paymentDate), ...bill.ledgerEvents.map(x => x.eventDate)].filter(Boolean).sort().at(-1);
     if (latest && e.eventDate < latest) fail(`Date must be on or after ${latest}, the latest activity for this bill.`);
@@ -54,7 +55,7 @@ function validateEvent(event, bills, payments, events) {
     if (cents(e.amount) > cents(source.pendingCredit)) fail('Amount exceeds available supplier credit.');
     if (e.kind === 'ADJUSTMENT') {
       const target = decorated.find(b => b.syncId === e.targetBillSyncId);
-      if (!target || target.syncId === source.syncId || target.category !== 'PAYABLE' || target.supplierName.trim().toLowerCase() !== source.supplierName.trim().toLowerCase()) fail('Choose another payable bill from the same supplier.');
+      if (!target || target.syncId === source.syncId || !isPayable(target) || target.supplierName.trim().toLowerCase() !== source.supplierName.trim().toLowerCase()) fail('Choose another payable bill from the same supplier.');
       chronological(target);
       if (cents(e.amount) > cents(target.remainingBalance)) fail('Adjustment exceeds the target bill balance.');
     }
@@ -69,7 +70,7 @@ function validatePayment(input, bills, payments, events) {
   const old = payments.find(p => p.syncId === input.syncId);
   if (old) { assertMutable(old.billSyncId, events); assertMutable(input.billSyncId, events); }
   const bill = decorate(bills, payments.filter(p => p.syncId !== input.syncId), events).find(b => b.syncId === input.billSyncId);
-  if (!bill || bill.category !== 'PAYABLE') fail('Select an active payable bill.');
+  if (!bill || !isPayable(bill)) fail('Select an active payable bill.');
   const latest = [bill.postingDate, bill.billDate, ...bill.ledgerEvents.map(e => e.eventDate)].filter(Boolean).sort().at(-1);
   if (latest && input.paymentDate < latest) fail(`Payment date must be on or after ${latest}.`);
   if (cents(input.amount) > cents(bill.remainingBalance)) fail('Payment exceeds the remaining bill balance.');
@@ -80,4 +81,4 @@ const eventFromRow = e => ({ syncId: e.sync_id, kind: e.kind, billSyncId: e.bill
 function decorateRows(bills, payments, events) {
   return decorate(bills.map(billFromRow), payments.map(paymentFromRow), events.map(eventFromRow)).map(b => ({ ...b, payments: payments.filter(p => p.bill_sync_id === b.syncId).map(p => ({ ...p, amount: Number(p.amount) })), paid_amount: b.paidAmount, returned_amount: b.returnedAmount, net_payable: b.netPayable, refund_amount: b.refundAmount, credit_used: b.creditUsed, credit_applied: b.creditApplied, remaining_balance: b.remainingBalance, pending_credit: b.pendingCredit, payment_status: b.paymentStatus, return_status: b.returnStatus, credit_status: b.creditStatus, last_return_date: b.lastReturnDate }));
 }
-module.exports = { money, date, positive, decorate, normalizeEvent, validateEvent, sameEvent, assertMutable, validatePayment, billFromRow, paymentFromRow, eventFromRow, decorateRows };
+module.exports = { isPayable, money, date, positive, decorate, normalizeEvent, validateEvent, sameEvent, assertMutable, validatePayment, billFromRow, paymentFromRow, eventFromRow, decorateRows };

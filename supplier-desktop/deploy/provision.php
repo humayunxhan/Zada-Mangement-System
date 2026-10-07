@@ -23,6 +23,8 @@ try {
     init_schema($pdo, $cfg);
     require $private . '/migrations/001-returns.php';
     migrate_returns($pdo);
+    require $private . '/migrations/002-records.php';
+    migrate_records($pdo);
     unset($cfg['default_admin_user'], $cfg['default_admin_pass']);
     $cfg['configured'] = true;
     file_put_contents($private . '/config.php.tmp', "<?php\nreturn " . var_export($cfg, true) . ";\n", LOCK_EX);

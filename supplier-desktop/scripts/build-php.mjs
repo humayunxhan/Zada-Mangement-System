@@ -7,7 +7,7 @@ const allowedRoot = new Set(['assets', 'api', 'index.html', 'logo.png', '.htacce
 for (const entry of await readdir('dist-php')) {
     if (!allowedRoot.has(entry)) throw new Error(`Unexpected deployment file: ${entry}`);
 }
-const allowedApi = new Set(['index.php', 'config.php', 'db.php', 'jwt.php', 'ledger.php', 'finance.php']);
+const allowedApi = new Set(['index.php', 'config.php', 'db.php', 'jwt.php', 'ledger.php', 'finance.php', 'records.php']);
 for (const entry of await readdir('dist-php/api')) {
     if (!allowedApi.has(entry)) throw new Error(`Unexpected API file: ${entry}`);
 }

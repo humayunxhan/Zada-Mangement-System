@@ -7,7 +7,7 @@ STAGE='/home/u728298835/domains/zadapharmacy.com/spms-private/integration-tests-
 fixtures=subprocess.check_output(['node',str(ROOT/'tests/ledger-fixtures.cjs')])
 archive=io.BytesIO()
 with tarfile.open(fileobj=archive,mode='w:gz') as tar:
- for name in ['public/api/finance.php','public/api/ledger.php','deploy/migrations/001-returns.php','tests/finance-php.php']:
+ for name in ['public/api/records.php','public/api/finance.php','public/api/ledger.php','deploy/migrations/001-returns.php','deploy/migrations/002-records.php','tests/finance-php.php']:
   tar.add(ROOT/name,arcname=name)
  info=tarfile.TarInfo('tests/golden.json');info.size=len(fixtures);tar.addfile(info,io.BytesIO(fixtures))
 subprocess.run(SSH+[f"umask 077; mkdir -p '{STAGE}'; tar -xzf - -C '{STAGE}'"],input=archive.getvalue(),check=True)

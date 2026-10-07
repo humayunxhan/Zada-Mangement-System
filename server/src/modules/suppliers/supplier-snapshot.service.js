@@ -29,11 +29,11 @@ export function normalizeSnapshot(input) {
   for (const p of livePayments) if (!live.some(b => b.syncId === p.billSyncId)) fail('Payment references a missing active bill.');
   for (const e of events) {
     const source = live.find(b => b.syncId === e.billSyncId);
-    if (!source || source.category !== 'PAYABLE') fail('Return/settlement references a missing payable bill.');
+    if (!source || !ledger.isPayable(source)) fail('Return/settlement references a missing payable bill.');
     if (e.kind === 'RETURN' && !e.remarks) fail('Return reason is required.');
     if (e.kind === 'ADJUSTMENT') {
       const target = live.find(b => b.syncId === e.targetBillSyncId);
-      if (!target || target.category !== 'PAYABLE' || target.syncId === source.syncId || target.supplierName.trim().toLowerCase() !== source.supplierName.trim().toLowerCase()) fail('Invalid supplier credit target.');
+      if (!target || !ledger.isPayable(target) || target.syncId === source.syncId || target.supplierName.trim().toLowerCase() !== source.supplierName.trim().toLowerCase()) fail('Invalid supplier credit target.');
     }
   }
   const replay = [];
@@ -51,15 +51,16 @@ export async function applySnapshot(scope, input) {
   return locked(scope, async (session, lock) => {
     if ((lock.versions?.[input.sourceId] || 0) >= input.version) return { version: input.version, duplicate: true };
     const ids = s.bills.map(b => b.syncId);
-    const oldBills = await SupplierBill.find({ ...scope, syncId: { $in: ids } }).session(session).lean();
-    const oldPayments = await SupplierPayment.find({ ...scope, $or: [{ billSyncId: { $in: ids } }, { syncId: { $in: s.payments.map(p => p.syncId) } }] }).session(session).lean();
+    const oldBills = await SupplierBill.find({ ...scope, $or: [{ syncSource: input.sourceId }, { syncId: { $in: ids } }] }).session(session).lean();
+    const oldPayments = await SupplierPayment.find({ ...scope, $or: [{ syncSource: input.sourceId }, { billSyncId: { $in: ids } }, { syncId: { $in: s.payments.map(p => p.syncId) } }] }).session(session).lean();
     for (const r of [...oldBills, ...oldPayments]) if (r.syncSource && r.syncSource !== input.sourceId) fail('These records belong to another supplier database. Sync from the original database.');
-    const oldEvents = await SupplierLedger.find({ ...scope, $or: [{ billSyncId: { $in: ids } }, { targetBillSyncId: { $in: ids } }] }).session(session).lean();
+    const ownedIds = [...new Set([...ids,...oldBills.filter(b=>b.syncSource===input.sourceId).map(b=>b.syncId)])];
+    const oldEvents = await SupplierLedger.find({ ...scope, $or: [{ billSyncId: { $in: ownedIds } }, { targetBillSyncId: { $in: ownedIds } }] }).session(session).lean();
     for (const e of oldEvents) if (!s.events.some(x => x.syncId === e.syncId && ledger.sameEvent(e, x))) fail('Sync cannot remove or change return/settlement history.');
     const protectedIds = new Set(oldEvents.flatMap(e => [e.billSyncId, e.targetBillSyncId]).filter(Boolean));
     for (const old of oldBills.filter(b => protectedIds.has(b.syncId))) {
       const b = s.bills.find(x => x.syncId === old.syncId);
-      if (b.deletedAt || ['supplierName', 'totalBillAmount', 'taxPercent', 'taxAmount', 'actualAmount', 'postingDate', 'billDate', 'category'].some(k => b[k] !== old[k])) fail('Sync cannot alter an original bill with settlement history.');
+      if (!b || b.deletedAt || ['supplierName', 'totalBillAmount', 'taxPercent', 'taxAmount', 'actualAmount', 'postingDate', 'billDate', 'category'].some(k => b[k] !== old[k])) fail('Sync cannot alter an original bill with settlement history.');
     }
     for (const old of oldPayments.filter(p => protectedIds.has(p.billSyncId) && !p.deletedAt)) {
       const p = s.payments.find(x => x.syncId === old.syncId);
@@ -68,6 +69,10 @@ export async function applySnapshot(scope, input) {
     for (const [Model, records] of [[SupplierBill, s.bills], [SupplierPayment, s.payments], [SupplierLedger, s.events]]) {
       if (records.length) await Model.bulkWrite(records.map(r => ({ updateOne: { filter: { ...scope, syncId: r.syncId }, update: { $set: { ...r, ...scope, ...(Model !== SupplierLedger ? { syncSource: input.sourceId } : {}) } }, upsert: true } })), { session });
     }
+    // Full snapshots, including restored backups, must also hide newer records
+    // absent from the restored state. Protected history was checked above.
+    await SupplierBill.updateMany({ ...scope, syncSource: input.sourceId, syncId: { $nin: ids } }, { $set: { deletedAt: new Date() } }, { session });
+    await SupplierPayment.updateMany({ ...scope, syncSource: input.sourceId, syncId: { $nin: s.payments.map(p=>p.syncId) } }, { $set: { deletedAt: new Date() } }, { session });
     await SupplierSyncState.updateOne({ key: lock.key }, { $set: { [`versions.${input.sourceId}`]: input.version } }, { session });
     return { version: input.version };
   });

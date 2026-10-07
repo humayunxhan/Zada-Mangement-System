@@ -18,6 +18,9 @@ const bill={sync_id:'bill-test',supplier_name:'Test Supplier',posting_date:'2026
 const lowerVoucher={...bill,sync_id:'lower-voucher',voucher_no:'2',posting_date:'2026-10-07',supplier_name:'Later date lower voucher'};
 let writes=0,release,savePayloads=[];
 globalThis.fetch=async(url,options={})=>{
+ if(url.includes('/records/backups')) return {ok:true,status:200,json:async()=>({items:[],schedule:'Private backups'})};
+ if(url.includes('/records/audit')) return {ok:true,status:200,json:async()=>[]};
+ if(url.includes('/records/duplicates')) return {ok:true,status:200,json:async()=>[]};
  if(options.method==='POST') {writes++;savePayloads.push(JSON.parse(options.body));await new Promise(resolve=>release=resolve);return {ok:false,status:503,json:async()=>({error:'Test connection failure'})};}
  return {ok:true,status:200,json:async()=>url.includes('sync-status')?{enabled:false,pending:0,error:null}:url.includes('/me')?{user}:url.includes('/users')?{users:[user]}:[lowerVoucher,bill]};
 };
@@ -28,7 +31,7 @@ try {
  await act(async()=>{root.render(React.createElement(App));});
  const click=async selector=>{const el=document.querySelector(selector);assert(el,selector);await act(async()=>el.click());};
  await click('.mobile-nav button:nth-child(2)');
- assert(document.querySelector('.mobile-bill-card').textContent.includes('Test Supplier'));
+ assert(document.querySelector('.mobile-bill-card').textContent.includes('Later date lower voucher'));
  await click('.bill-card-heading');assert(document.querySelector('.bill-card-details'));
  await click('.bill-card-actions .primary');assert(document.querySelector('dialog[open]'));
  assert(document.querySelector('dialog[open]').contains(document.activeElement));
@@ -46,6 +49,12 @@ try {
  globalThis.confirm=()=>true;
  await act(async()=>[...document.querySelectorAll('dialog .dialog-actions button')].find(el=>el.textContent==='Cancel').click());
  globalThis.confirm=()=>false;
+ await act(async()=>{Object.defineProperty(navigator,'onLine',{value:true,configurable:true});window.dispatchEvent(new window.Event('online'));});
+ await click('.mobile-nav button:last-child');
+ await act(async()=>[...document.querySelectorAll('.account-panel button')].find(el=>el.textContent.includes('Backups & audit')).click());
+ assert(document.querySelector('.records-view'),'Mobile account reaches records management');
+ await act(async()=>{Object.defineProperty(navigator,'onLine',{value:false,configurable:true});window.dispatchEvent(new window.Event('offline'));});
+ assert([...document.querySelectorAll('.records-view button')].find(el=>el.textContent==='Create backup now').disabled,'Offline backup mutation blocked');
  await act(async()=>{Object.defineProperty(navigator,'onLine',{value:true,configurable:true});window.dispatchEvent(new window.Event('online'));});
  await click('.header-add');assert(document.querySelector('.bill-form'));
  const supplier=document.querySelector('input[list="supplier-names"]');

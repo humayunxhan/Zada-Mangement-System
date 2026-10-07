@@ -97,3 +97,23 @@ Deployed release: `20261004T174630Z` (previous SPMS docroot backed up).
   for login, ledger balances, protected includes, assets and both existing sites.
 - No browser UI was used; no live financial test records were created. Physical
   phone rendering/install behavior remains unverified.
+
+## Follow-up integration — master through d5dde27
+
+- Restore newest-date grouping, with descending voucher order within each date.
+- Treat BILL_TO_BILL invoices as payable in PHP payments, returns and settlements,
+  matching the shared JavaScript ledger.
+- Support duplicate invoice acknowledgement, filtered CSV/Excel exports, account
+  and financial audit entries, private JSON backups and administrator-only restore.
+- Migration `002-records` adds the audit table without altering existing records.
+  Audit writes and their financial/account mutations share one transaction.
+- The PHP portal creates a daily snapshot on authenticated financial API use;
+  it does not require a Node server or a scheduled process. Private snapshots are
+  retained without automatic deletion. Backups exclude accounts/passwords.
+- Restore validates the checksum, accounting and database identity, rejects removal
+  or alteration of settlement history, retains audit history, and saves a safety
+  snapshot first. Restore tests run only in temporary databases, never live.
+- ExcelJS loads on demand for Excel exports; its separate bundle exceeds Vite's
+  size advisory. It is not part of the initial app bundle.
+- Validation: 17 server tests, 12 desktop/management/export tests, mobile/PWA DOM
+  tests, and PHP accounting/management tests on SQLite and temporary MySQL tables.

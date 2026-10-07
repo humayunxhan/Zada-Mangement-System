@@ -166,3 +166,11 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
   .returns-toolbar { flex-wrap:wrap; }
   .returns-toolbar label { min-width:0; width:100%; }
 }
+@media(max-width:767px){
+  .records-view .record-actions,.records-view .audit-filters,.export-controls{display:flex;flex-wrap:wrap;gap:10px}
+  .records-view .tableWrap{max-width:100%;overflow-x:auto}
+  .records-view .audit-filters label{flex:1 1 135px;min-width:0}
+  .records-view .audit-filters input,.records-view .audit-filters select{width:100%;min-width:0}
+  .records-view .section-heading{align-items:flex-start;flex-wrap:wrap;gap:8px}
+  .audit-json{max-width:100%;overflow:auto}
+}

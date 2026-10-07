@@ -110,6 +110,8 @@ export async function initDb() {
   await p.query('INSERT IGNORE INTO supplier_sync_state (id, source_id) VALUES (1, ?)', [crypto.randomUUID()]);
   await p.query(`CREATE TABLE IF NOT EXISTS supplier_sync_outbox (id BIGINT AUTO_INCREMENT PRIMARY KEY, payload LONGTEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB`);
 
+  await p.query(`CREATE TABLE IF NOT EXISTS supplier_audit_log (id BIGINT AUTO_INCREMENT PRIMARY KEY,sync_id VARCHAR(64) NOT NULL UNIQUE,actor VARCHAR(100),action VARCHAR(40),entity VARCHAR(40),record_id VARCHAR(200),before_json LONGTEXT,after_json LONGTEXT,details_json LONGTEXT,created_at VARCHAR(30),INDEX idx_audit_date(created_at)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
   // 4. Seed default Admin user if no users exist
   const [rows] = await p.query('SELECT COUNT(*) as count FROM users');
   if (rows[0].count === 0) {

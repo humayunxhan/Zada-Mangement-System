@@ -10,6 +10,7 @@ import SummaryView from './views/SummaryView';
 import AddBillView from './views/AddBillView';
 import AllBillsView from './views/AllBillsView';
 import ReturnsView from './views/ReturnsView';
+import RecordsView from './views/RecordsView';
 import UsersView from './views/UsersView';
 import LoginView from './views/LoginView';
 import { newSyncId } from './ids';
@@ -70,6 +71,7 @@ export default function App() {
   const [paymentError, setPaymentError] = useState('');
   const [deleteError, setDeleteError] = useState('');
   const [notice, setNotice] = useState('');
+  const [duplicateWarning, setDuplicateWarning] = useState(null);
   const requestSequence = useRef(0);
 
   const [online, setOnline] = useState(navigator.onLine);
@@ -78,7 +80,7 @@ export default function App() {
   const dirty = JSON.stringify(form) !== baseline.current;
   function resetForm() { const next=blank(); baseline.current=JSON.stringify(next); setForm(next); billIdentity.current=null; }
   function clearSession() {
-    requestSequence.current++; setCurrentUser(null); setItems([]); setPaying(null); setReturning(null); setConfirming(null);
+    requestSequence.current++; setCurrentUser(null); setDuplicateWarning(null); setItems([]); setPaying(null); setReturning(null); setConfirming(null);
     resetForm(); setSearch(''); setNotice(''); setFormError(''); setPaymentError(''); setErrorMsg(''); setActiveTab('summary');
   }
   function navigate(tab) {
@@ -165,6 +167,7 @@ export default function App() {
     ];
     if (currentUser?.role === 'admin') {
       list.push({ id: 'users', label: 'Team access', icon: 'users' });
+      list.push({ id: 'records', label: 'Backups & audit', icon: 'lock' });
     }
     return list;
   }, [currentUser]);
@@ -204,15 +207,18 @@ export default function App() {
     [items]
   );
 
-  async function save(e) {
-    e.preventDefault();
+  async function save(e, acknowledged = []) {
+    e?.preventDefault();
     if (mutationBusy.current || !online) return;
     mutationBusy.current=true;
     setSavingBill(true); setFormError(''); setNotice('');
     let billSaved = false;
     try {
       billIdentity.current ||= form.sync_id || newSyncId();
-      const payload = { ...form, sync_id: billIdentity.current };
+      const payload = { ...form, sync_id: billIdentity.current, duplicate_acknowledged: acknowledged };
+      const matches = await api.records.duplicates(payload);
+      if (matches.some(b => !acknowledged.includes(b.sync_id))) { setDuplicateWarning(matches); return; }
+      setDuplicateWarning(null);
       setForm(payload);
       const saved = await api.bills.save(payload);
       billSaved = true;
@@ -340,7 +346,9 @@ export default function App() {
       case 'returns':
         return <ReturnsView key={returning?.sync_id || 'returns'} initialBill={returning} onChanged={load} online={online} />;
       case 'more':
-        return <section className="account-panel"><span className="section-kicker">YOUR WORKSPACE</span><h2>{currentUser.full_name}</h2><p>@{currentUser.username} · {currentUser.role}</p><InstallApp /><button onClick={()=>navigate('returns')}>Returns & supplier credits →</button>{currentUser.role==='admin' && <button onClick={()=>navigate('users')}>Manage users & staff →</button>}<button className="danger" onClick={handleLogout}>Sign out</button><p>Financial records are saved online. {syncStatus?.enabled===false && 'External CEO sync is disabled for this private portal.'}</p></section>;
+        return <section className="account-panel"><span className="section-kicker">YOUR WORKSPACE</span><h2>{currentUser.full_name}</h2><p>@{currentUser.username} · {currentUser.role}</p><InstallApp /><button onClick={()=>navigate('returns')}>Returns & supplier credits →</button>{currentUser.role==='admin' && <button onClick={()=>navigate('records')}>Backups & audit →</button>}{currentUser.role==='admin' && <button onClick={()=>navigate('users')}>Manage users & staff →</button>}<button className="danger" onClick={handleLogout}>Sign out</button><p>Financial records are saved online. {syncStatus?.enabled===false && 'External CEO sync is disabled for this private portal.'}</p></section>;
+      case 'records':
+        return <RecordsView onChanged={load} online={online} />;
       case 'users':
         return <UsersView currentUser={currentUser} />;
       default:
@@ -361,18 +369,20 @@ export default function App() {
 
       <main className="content-shell" id="workspace" tabIndex={-1}>
         <header className="app-header">
-          <div><small>ZADA PHARMACY</small><h1>{({summary:'Overview',all:'Bills & payments',bills:'Supplier bill',payments:'Payments',returns:'Returns & credits',more:'Your account',users:'Users & staff'})[activeTab]}</h1><p className="desktop-subtitle">Supplier reconciliation</p></div>
+          <div><small>ZADA PHARMACY</small><h1>{({summary:'Overview',all:'Bills & payments',bills:'Supplier bill',payments:'Payments',returns:'Returns & credits',more:'Your account',users:'Users & staff',records:'Backups & audit'})[activeTab]}</h1><p className="desktop-subtitle">Supplier reconciliation</p></div>
           <div className="header-tools"><button className="header-add" aria-label="Add bill" onClick={()=>navigate('bills')}><AppIcon name="bills" /><span>Add bill</span></button><span className="today-label">{new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Karachi' })}</span>{['summary', 'all'].includes(activeTab) && <button type="button" className="icon-button" aria-label="Refresh bills" onClick={load} disabled={loading}><Icon name="refresh" className={loading ? 'is-loading' : ''} /></button>}</div>
         </header>
         {!online && <div className="connection-banner" role="status">You’re offline. Reconnect to refresh records or save changes.</div>}
         {errorMsg && <Feedback>{errorMsg} <button type="button" className="quiet-button" onClick={load} disabled={loading}>Try again</button></Feedback>}
         {notice && <Feedback tone="success" onDismiss={() => setNotice('')}>{notice}</Feedback>}
-        {syncStatus && (syncStatus.pending > 0 || syncStatus.error) && <Feedback tone="success">Changes saved. {syncStatus.pending} update{syncStatus.pending === 1 ? '' : 's'} waiting to reach CEO reports.{syncStatus.error ? ' Check the connection if this persists.' : ''}</Feedback>}
+        {syncStatus?.recoveryRequired && <Feedback>The local database needs recovery. An administrator can restore a saved backup from Backups &amp; audit before entering records.</Feedback>}
+        {syncStatus && !syncStatus.recoveryRequired && (syncStatus.pending > 0 || syncStatus.error) && <Feedback tone="success">Changes saved. {syncStatus.pending} update{syncStatus.pending === 1 ? '' : 's'} waiting to reach CEO reports.{syncStatus.error ? ' Check the connection if this persists.' : ''}</Feedback>}
         {loading && !items.length && ['summary', 'all'].includes(activeTab) ? <div className="loading-state" role="status"><span className="loading-spinner" />Loading supplier records…</div> : renderTab()}
         <DeveloperCredits />
       </main>
       <nav className="mobile-nav" aria-label="Mobile navigation">{[['summary','Home'],['all','Bills'],['payments','Pay'],['more','More']].map(([id,label])=><button key={id} type="button" aria-current={activeTab===id?'page':undefined} onClick={()=>navigate(id)}><AppIcon name={id} /><span>{label}</span></button>)}</nav>
 
+      {duplicateWarning && <Modal title="Possible duplicate invoice" busy={savingBill} onClose={() => setDuplicateWarning(null)}><p>This supplier already has the same invoice number. Review the existing entries before saving another bill.</p><div className="duplicate-matches">{duplicateWarning.map(b => <div key={b.sync_id}><strong>{b.supplier_name} / {b.supplier_bill_no}</strong><small>Posted {b.posting_date} · Rs {money(b.total_bill_amount)} · Voucher {b.voucher_no || '—'}</small></div>)}</div>{formError && <Feedback>{formError}</Feedback>}<div className="dialog-actions"><button disabled={savingBill} onClick={() => setDuplicateWarning(null)}>Go back</button><button className="primary" disabled={savingBill} onClick={() => save(null,duplicateWarning.map(b => b.sync_id))}>{savingBill?'Saving…':'Save anyway'}</button></div></Modal>}
       {paying && <Modal title="Record payment" onClose={closePayment} busy={savingPayment}>
         <form className="payment-modal" onSubmit={pay}>
           <p className="dialog-description">{paying.supplier_name} / Bill {paying.supplier_bill_no || paying.voucher_no || '—'}</p>

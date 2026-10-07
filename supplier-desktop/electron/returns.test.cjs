@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs'); const os = require('os'); const path = require('path');
 const db = require('./db.cjs');
+const cleanup = require('./test-cleanup.cjs');
 test('offline return, refund and adjustment persist atomically with the CEO sync snapshot', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'zada-returns-test-'));
   try {
@@ -41,6 +42,31 @@ test('offline return, refund and adjustment persist atomically with the CEO sync
     db.completeSync(db.syncJob().id); assert.equal(db.syncStatus().pending, 0);
   } finally {
     // This is a test-created directory; remove only its known database and directory.
-    fs.unlinkSync(path.join(dir, 'supplier-reconciliation.sqlite')); fs.rmdirSync(dir);
+    cleanup(dir);
+  }
+});
+
+
+test('offline bill-to-bill payments persist and sync without automatically settling the next bill', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'zada-bill-payment-test-'));
+  try {
+    await db.init(dir);
+    const bill = (id, date, amount) => ({ sync_id: id, posting_date: date, bill_date: date, supplier_name: 'Supplier A', total_bill_amount: amount, tax_percent: 0, category: 'BILL_TO_BILL' });
+    db.saveBill(bill('old', '2026-10-01', 10000));
+    db.saveBill(bill('next', '2026-10-07', 7000));
+    assert.equal(db.list().find(b => b.sync_id === 'old').remaining_balance, 10000);
+    const p = { sync_id: 'partial', bill_sync_id: 'old', payment_date: '2026-10-07', amount: 4000, payment_mode: 'CHEQUE', reference_no: 'CHQ-1' };
+    db.addPayment(p); db.addPayment(p); // A retry must not duplicate the payment.
+    assert.equal(db.list().find(b => b.sync_id === 'old').remaining_balance, 6000);
+    db.addPayment({ ...p, sync_id: 'final', amount: 6000 });
+    const { normalizeSnapshot } = await import('../../server/src/modules/suppliers/supplier-snapshot.service.js');
+    assert.doesNotThrow(() => normalizeSnapshot(JSON.parse(db.syncJob().payload)));
+    await db.init(dir);
+    const old = db.list().find(b => b.sync_id === 'old');
+    assert.equal(old.payment_status, 'COMPLETE'); assert.equal(old.paid_amount, 10000);
+    assert.equal(old.payments.length, 2); assert.equal(old.payments[0].payment_date, '2026-10-07');
+    assert.equal(db.list().find(b => b.sync_id === 'next').remaining_balance, 7000);
+  } finally {
+    cleanup(dir);
   }
 });

@@ -53,3 +53,6 @@ dist-installers
 dist-php/
 spms-private/
 *.credentials.json
+# Supplier automatic financial backups
+supplier-desktop/server/backups/
+*.sqlite.pending
