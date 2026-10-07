@@ -1,5 +1,7 @@
+import DeveloperCredits from '../components/DeveloperCredits';
 import React, { useState } from 'react';
 import { api } from '../api';
+import InstallApp from '../components/InstallApp';
 
 export default function LoginView({ onLoginSuccess }) {
   const [username, setUsername] = useState('');
@@ -75,10 +77,12 @@ export default function LoginView({ onLoginSuccess }) {
             {loading ? 'Authenticating...' : 'Sign In'}
           </button>
 
+          <InstallApp />
           <div className="login-footer">
-            <small>Protected by Role-Based JWT Authentication · Hostinger MySQL DB</small>
+            <small>Private portal · Authorized users only</small>
           </div>
         </form>
+        <DeveloperCredits />
       </div>
     </div>
   );

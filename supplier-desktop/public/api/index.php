@@ -3,11 +3,20 @@
 // Zada Pharmacy SPMS - Unified REST API Router (PHP + Hostinger MySQL)
 // ====================================================================
 
+ini_set('display_errors', '0');
+header('X-Robots-Tag: noindex, nofollow, noarchive, nosnippet');
+header('Cache-Control: private, no-store, max-age=0');
+set_exception_handler(function ($error) {
+    error_log('SPMS request failed: ' . get_class($error));
+    http_response_code(503);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['error' => 'Service temporarily unavailable. Please contact the administrator.']);
+});
 require_once __DIR__ . '/db.php';
 
 // Set JSON response headers and CORS
 header('Content-Type: application/json; charset=utf-8');
-header('Access-Control-Allow-Origin: *');
+// Same-origin deployment; no cross-origin API access is advertised.
 header('Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
 
@@ -34,7 +43,7 @@ function get_json_body() {
 
 // Helper to get bearer token user
 function get_auth_user() {
-    global $cfg;
+    global $cfg, $pdo;
     $headers = getallheaders();
     $auth = '';
     foreach ($headers as $k => $v) {
@@ -56,7 +65,14 @@ function get_auth_user() {
     if (!$user) {
         send_json(['error' => 'Invalid or expired session. Please log in again.'], 401);
     }
-    return $user;
+    $stmt = $pdo->prepare('SELECT id, username, full_name, role, status, password_hash FROM users WHERE id = ?');
+    $stmt->execute([$user['id'] ?? 0]);
+    $current = $stmt->fetch();
+    if (!$current || $current['status'] !== 'active' || !hash_equals(hash('sha256', $current['password_hash']), $user['credential_version'] ?? '')) {
+        send_json(['error' => 'Session expired. Please log in again.'], 401);
+    }
+    unset($current['password_hash']);
+    return $current;
 }
 
 function require_admin($user) {
@@ -93,8 +109,39 @@ if ($path === 'health') {
 // AUTHENTICATION ROUTES
 // ====================================================================
 
+// Bound password attempts per remote address; state stays outside the public root.
+function limit_login_attempts() {
+    global $cfg;
+    $dir = $cfg['private_dir'] . '/login-attempts';
+    if (!is_dir($dir) && !mkdir($dir, 0700, true) && !is_dir($dir)) {
+        throw new RuntimeException('Login limiter unavailable');
+    }
+    $key = hash_hmac('sha256', $_SERVER['REMOTE_ADDR'] ?? 'unknown', $cfg['jwt_secret']);
+    $file = fopen($dir . '/' . $key, 'c+');
+    if (!$file || !flock($file, LOCK_EX)) throw new RuntimeException('Login limiter unavailable');
+    $entry = json_decode(stream_get_contents($file), true);
+    $now = time();
+    if (!is_array($entry) || ($entry['until'] ?? 0) <= $now) {
+        $entry = ['until' => $now + 900, 'count' => 0];
+    }
+    if ($entry['count'] >= 10) {
+        flock($file, LOCK_UN);
+        fclose($file);
+        header('Retry-After: ' . max(1, $entry['until'] - $now));
+        send_json(['error' => 'Too many login attempts. Please try again later.'], 429);
+    }
+    $entry['count']++;
+    rewind($file);
+    ftruncate($file, 0);
+    fwrite($file, json_encode($entry));
+    fflush($file);
+    flock($file, LOCK_UN);
+    fclose($file);
+}
+
 // POST /api/auth/login
 if ($path === 'auth/login' && $method === 'POST') {
+    limit_login_attempts();
     $body = get_json_body();
     $username = trim($body['username'] ?? '');
     $password = $body['password'] ?? '';
@@ -121,8 +168,10 @@ if ($path === 'auth/login' && $method === 'POST') {
         'full_name' => $user['full_name'],
         'role' => $user['role'],
     ];
+    $claims = $payload;
+    $claims['credential_version'] = hash('sha256', $user['password_hash']);
 
-    $token = jwt_encode($payload, $cfg['jwt_secret']);
+    $token = jwt_encode($claims, $cfg['jwt_secret'], 28800);
 
     send_json([
         'token' => $token,
@@ -150,8 +199,8 @@ if ($path === 'auth/change-password' && $method === 'POST') {
     if (!$curr || !$next) {
         send_json(['error' => 'Current and new password are required'], 400);
     }
-    if (strlen($next) < 6) {
-        send_json(['error' => 'New password must be at least 6 characters'], 400);
+    if (strlen($next) < 12) {
+        send_json(['error' => 'New password must be at least 12 characters'], 400);
     }
 
     $stmt = $pdo->prepare('SELECT password_hash FROM users WHERE id = ?');
@@ -192,8 +241,8 @@ if ($path === 'auth/users' && $method === 'POST') {
     if (!$username || !$full_name || !$password) {
         send_json(['error' => 'Username, full name, and password are required'], 400);
     }
-    if (strlen($password) < 6) {
-        send_json(['error' => 'Password must be at least 6 characters'], 400);
+    if (strlen($password) < 12) {
+        send_json(['error' => 'Password must be at least 12 characters'], 400);
     }
 
     $check = $pdo->prepare('SELECT id FROM users WHERE username = ?');

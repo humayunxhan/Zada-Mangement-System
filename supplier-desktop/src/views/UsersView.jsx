@@ -109,11 +109,11 @@ export default function UsersView({ currentUser }) {
             </label>
 
             <label>
-              Password * (Minimum 6 characters)
+              Password * (Minimum 12 characters)
               <input
                 type="password"
                 required
-                minLength={6}
+                minLength={12}
                 placeholder="••••••••"
                 value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })}

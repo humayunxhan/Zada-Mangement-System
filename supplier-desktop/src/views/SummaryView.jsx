@@ -33,7 +33,7 @@ export default function SummaryView({ totals, items }) {
     <div style={S.page}>
 
       {/* ── Top KPI cards ── */}
-      <div style={S.kpiRow}>
+      <div className="summary-kpis" style={S.kpiRow}>
         <KpiCard label="Gross Bills"    value={`Rs ${money(totals.gross)}`}   sub={`${items.length} bill${items.length !== 1 ? 's' : ''} in range`} />
         <KpiCard label="Tax Deducted"   value={`Rs ${money(totals.tax)}`}     sub="Income tax withheld" dimmed />
         <KpiCard label="Actual Payable" value={`Rs ${money(totals.actual)}`}  sub="Net after tax" />
@@ -51,7 +51,7 @@ export default function SummaryView({ totals, items }) {
           <div style={S.progressTrack}>
             <div style={{ ...S.progressFill, width: `${paidPct}%`, background: paidPct === 100 ? '#34d399' : '#22c55e' }} />
           </div>
-          <div style={S.progressLegend}>
+          <div className="summary-legend" style={S.progressLegend}>
             <span style={S.legendItem}><span style={{ ...S.legendDot, background: '#34d399' }} />Paid — Rs {money(totals.paid)}</span>
             <span style={S.legendItem}><span style={{ ...S.legendDot, background: '#fbbf24' }} />Outstanding — Rs {money(totals.balance)}</span>
           </div>
@@ -59,7 +59,7 @@ export default function SummaryView({ totals, items }) {
       )}
 
       {/* ── Status breakdown + Supplier breakdown ── */}
-      <div style={S.midRow}>
+      <div className="summary-breakdown" style={S.midRow}>
 
         {/* Status breakdown */}
         <div style={S.card}>
@@ -97,7 +97,7 @@ export default function SummaryView({ totals, items }) {
           {bySupplier.length === 0
             ? <div style={S.empty}>No data yet.</div>
             : bySupplier.map((sup) => (
-              <div key={sup.name} style={S.supRow}>
+              <div className="supplier-summary-row" key={sup.name} style={S.supRow}>
                 <div style={S.supLeft}>
                   <span style={S.supName}>{sup.name}</span>
                   <span style={S.supMeta}>{sup.count} bill{sup.count !== 1 ? 's' : ''} · Gross Rs {money(sup.gross)}</span>

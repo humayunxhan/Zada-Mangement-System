@@ -49,3 +49,7 @@ app-builds/
 .gemini/
 
 dist-installers
+# Private SPMS deployment outputs
+dist-php/
+spms-private/
+*.credentials.json

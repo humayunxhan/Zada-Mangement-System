@@ -15,7 +15,7 @@ export default function Sidebar({ tabs, activeTab, onChange, currentUser, onLogo
       <div className="brand-box">
         <small>ZADA PHARMACY</small>
         <h2>Supplier Desk</h2>
-        <div className="system-badge">WEB & VPS ONLINE</div>
+        <div className="system-badge">SUPPLIER & PAYMENT DESK</div>
       </div>
 
       <nav className="side-nav" aria-label="Sidebar navigation">

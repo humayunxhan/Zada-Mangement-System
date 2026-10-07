@@ -2,7 +2,7 @@ import React from 'react';
 
 const money = (v) => Number(v || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
-export default function AddBillView({ form, setForm, suppliers = [], onSave, onCancel }) {
+export default function AddBillView({ form, setForm, suppliers = [], onSave, onCancel, saving = false, online = true }) {
   const gross = Number(form.total_bill_amount || 0);
   const taxPct = Number(form.tax_percent || 0);
   const taxAmount = (gross * taxPct) / 100;
@@ -37,7 +37,8 @@ export default function AddBillView({ form, setForm, suppliers = [], onSave, onC
   };
 
   return (
-    <form style={S.container} onSubmit={onSave}>
+    <form className="bill-form" style={S.container} onSubmit={onSave}>
+      <fieldset disabled={saving}>
       {/* ── Header ── */}
       <div style={S.header}>
         <span style={S.eyebrow}>SUPPLIER INVOICE</span>
@@ -53,11 +54,11 @@ export default function AddBillView({ form, setForm, suppliers = [], onSave, onC
           <span style={S.cardTitle}>Bill Information</span>
         </div>
 
-        <div style={S.grid}>
+        <div className="bill-form-grid" style={S.grid}>
           {/* Posting Date */}
           <div style={S.field}>
-            <label style={S.label}>Posting Date</label>
-            <input
+            <label htmlFor="bill-field-1" style={S.label}>Posting Date</label>
+            <input id="bill-field-1"
               type="date"
               style={S.input}
               value={form.posting_date || ''}
@@ -68,8 +69,8 @@ export default function AddBillView({ form, setForm, suppliers = [], onSave, onC
 
           {/* Bill Date */}
           <div style={S.field}>
-            <label style={S.label}>Bill Date</label>
-            <input
+            <label htmlFor="bill-field-2" style={S.label}>Bill Date</label>
+            <input id="bill-field-2"
               type="date"
               style={S.input}
               value={form.bill_date || ''}
@@ -80,8 +81,8 @@ export default function AddBillView({ form, setForm, suppliers = [], onSave, onC
 
           {/* Supplier Name with Datalist */}
           <div style={{ ...S.field, gridColumn: 'span 2' }}>
-            <label style={S.label}>Supplier / Distributor Name *</label>
-            <input
+            <label htmlFor="bill-field-3" style={S.label}>Supplier / Distributor Name *</label>
+            <input id="bill-field-3"
               list="suppliers-datalist"
               style={S.input}
               placeholder="e.g. Brooks Pharma, Helix, Zada Distributors"
@@ -98,8 +99,8 @@ export default function AddBillView({ form, setForm, suppliers = [], onSave, onC
 
           {/* Supplier Bill No */}
           <div style={S.field}>
-            <label style={S.label}>Supplier Bill No.</label>
-            <input
+            <label htmlFor="bill-field-4" style={S.label}>Supplier Bill No.</label>
+            <input id="bill-field-4"
               style={S.input}
               placeholder="e.g. INV-90412"
               value={form.supplier_bill_no || ''}
@@ -109,8 +110,8 @@ export default function AddBillView({ form, setForm, suppliers = [], onSave, onC
 
           {/* Abuzar Voucher No */}
           <div style={S.field}>
-            <label style={S.label}>Abuzar Voucher No.</label>
-            <input
+            <label htmlFor="bill-field-5" style={S.label}>Abuzar Voucher No.</label>
+            <input id="bill-field-5"
               style={S.input}
               placeholder="e.g. V-1044"
               value={form.voucher_no || ''}
@@ -120,9 +121,9 @@ export default function AddBillView({ form, setForm, suppliers = [], onSave, onC
 
           {/* Total Bill Amount */}
           <div style={S.field}>
-            <label style={S.label}>Total Bill Amount (Gross) *</label>
-            <input
-              type="number"
+            <label htmlFor="bill-field-6" style={S.label}>Total Bill Amount (Gross) *</label>
+            <input id="bill-field-6"
+              type="number" inputMode="decimal" min="0"
               step="any"
               style={{ ...S.input, fontWeight: '700', fontSize: 15 }}
               placeholder="0.00"
@@ -134,9 +135,9 @@ export default function AddBillView({ form, setForm, suppliers = [], onSave, onC
 
           {/* Tax % */}
           <div style={S.field}>
-            <label style={S.label}>Tax Withholding %</label>
-            <input
-              type="number"
+            <label htmlFor="bill-field-7" style={S.label}>Tax Withholding %</label>
+            <input id="bill-field-7"
+              type="number" inputMode="decimal" min="0"
               step="0.01"
               style={S.input}
               placeholder="0.00"
@@ -147,8 +148,8 @@ export default function AddBillView({ form, setForm, suppliers = [], onSave, onC
 
           {/* Category */}
           <div style={{ ...S.field, gridColumn: 'span 2' }}>
-            <label style={S.label}>Bill Category</label>
-            <select
+            <label htmlFor="bill-field-8" style={S.label}>Bill Category</label>
+            <select id="bill-field-8"
               style={S.select}
               value={form.category || 'PAYABLE'}
               onChange={(e) => setForm((p) => ({ ...p, category: e.target.value }))}
@@ -162,7 +163,7 @@ export default function AddBillView({ form, setForm, suppliers = [], onSave, onC
         </div>
 
         {/* Calculation Strip */}
-        <div style={S.calcStrip}>
+        <div className="form-calculations" style={S.calcStrip}>
           <div style={S.calcCol}>
             <span style={S.calcLabel}>Gross Bill</span>
             <span style={S.calcVal}>Rs {money(gross)}</span>
@@ -181,8 +182,8 @@ export default function AddBillView({ form, setForm, suppliers = [], onSave, onC
 
         {/* Remarks */}
         <div style={{ ...S.field, marginTop: 14 }}>
-          <label style={S.label}>Remarks / Discrepancy Notes</label>
-          <textarea
+          <label htmlFor="bill-field-9" style={S.label}>Remarks / Discrepancy Notes</label>
+          <textarea id="bill-field-9"
             style={S.textarea}
             placeholder="Add any remarks or delivery discrepancy notes..."
             value={form.remarks || ''}
@@ -194,7 +195,7 @@ export default function AddBillView({ form, setForm, suppliers = [], onSave, onC
       {/* ── Immediate Payment Section ── */}
       <div style={{ ...S.paymentContainer, ...(form.record_payment ? S.paymentContainerActive : {}) }}>
         {/* Toggle bar */}
-        <div style={S.paymentToggleBar} onClick={handleTogglePayment}>
+        <div className="payment-toggle" style={S.paymentToggleBar} onClick={handleTogglePayment}>
           <label style={S.checkboxLabel} onClick={(e) => e.stopPropagation()}>
             <input
               type="checkbox"
@@ -218,7 +219,7 @@ export default function AddBillView({ form, setForm, suppliers = [], onSave, onC
         {form.record_payment && (
           <div style={S.paymentBody}>
             {/* Quick Fill Buttons */}
-            <div style={S.quickActions}>
+            <div className="payment-quick-actions" style={S.quickActions}>
               <span style={S.quickLabel}>Quick Fill:</span>
               <button
                 type="button"
@@ -241,11 +242,11 @@ export default function AddBillView({ form, setForm, suppliers = [], onSave, onC
               </button>
             </div>
 
-            <div style={S.grid}>
+            <div className="bill-form-grid" style={S.grid}>
               {/* Payment Date */}
               <div style={S.field}>
-                <label style={S.label}>Payment Date *</label>
-                <input
+                <label htmlFor="bill-field-10" style={S.label}>Payment Date *</label>
+                <input id="bill-field-10"
                   type="date"
                   style={S.input}
                   value={form.payment_date || form.posting_date || ''}
@@ -256,9 +257,9 @@ export default function AddBillView({ form, setForm, suppliers = [], onSave, onC
 
               {/* Payment Amount */}
               <div style={S.field}>
-                <label style={S.label}>Paid Amount (Rs) *</label>
-                <input
-                  type="number"
+                <label htmlFor="bill-field-11" style={S.label}>Paid Amount (Rs) *</label>
+                <input id="bill-field-11"
+                  type="number" inputMode="decimal" min="0"
                   step="any"
                   style={{ ...S.input, fontWeight: '800', color: '#34d399', fontSize: 16 }}
                   placeholder="0.00"
@@ -270,8 +271,8 @@ export default function AddBillView({ form, setForm, suppliers = [], onSave, onC
 
               {/* Payment Mode */}
               <div style={S.field}>
-                <label style={S.label}>Payment Mode *</label>
-                <select
+                <label htmlFor="bill-field-12" style={S.label}>Payment Mode *</label>
+                <select id="bill-field-12"
                   style={S.select}
                   value={form.payment_mode || 'COUNTER_CASH'}
                   onChange={(e) => setForm((p) => ({ ...p, payment_mode: e.target.value }))}
@@ -286,8 +287,8 @@ export default function AddBillView({ form, setForm, suppliers = [], onSave, onC
 
               {/* Reference / Cheque No */}
               <div style={S.field}>
-                <label style={S.label}>Reference / Cheque No.</label>
-                <input
+                <label htmlFor="bill-field-13" style={S.label}>Reference / Cheque No.</label>
+                <input id="bill-field-13"
                   style={S.input}
                   placeholder="e.g. CHQ-88219 or Txn ID"
                   value={form.payment_reference_no || ''}
@@ -297,8 +298,8 @@ export default function AddBillView({ form, setForm, suppliers = [], onSave, onC
 
               {/* Payment Remarks */}
               <div style={{ ...S.field, gridColumn: 'span 2' }}>
-                <label style={S.label}>Payment Remarks / Note</label>
-                <input
+                <label htmlFor="bill-field-14" style={S.label}>Payment Remarks / Note</label>
+                <input id="bill-field-14"
                   style={S.input}
                   placeholder="e.g. Paid at delivery, handed over to distributor representative"
                   value={form.payment_remarks || ''}
@@ -308,7 +309,7 @@ export default function AddBillView({ form, setForm, suppliers = [], onSave, onC
             </div>
 
             {/* Live Settlement Breakdown */}
-            <div style={S.settlementStrip}>
+            <div className="settlement-strip" style={S.settlementStrip}>
               <div style={S.settleItem}>
                 <span style={S.settleLabel}>Payable</span>
                 <span style={S.settleVal}>Rs {money(actualPayable)}</span>
@@ -340,9 +341,9 @@ export default function AddBillView({ form, setForm, suppliers = [], onSave, onC
       </div>
 
       {/* ── Form Actions ── */}
-      <div style={S.actions}>
-        <button type="submit" style={S.primaryBtn}>
-          {form.record_payment && paymentAmount > 0 ? '✓ Save Bill & Record Payment' : '✓ Save Bill Only'}
+      <div className="form-actions" style={S.actions}>
+        <button type="submit" disabled={saving || !online} style={S.primaryBtn}>
+          {saving ? 'Saving…' : form.record_payment && paymentAmount > 0 ? '✓ Save Bill & Record Payment' : '✓ Save Bill Only'}
         </button>
         {form.sync_id && (
           <button type="button" style={S.cancelBtn} onClick={onCancel}>
@@ -350,6 +351,7 @@ export default function AddBillView({ form, setForm, suppliers = [], onSave, onC
           </button>
         )}
       </div>
+    </fieldset>
     </form>
   );
 }

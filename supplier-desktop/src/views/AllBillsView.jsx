@@ -35,7 +35,7 @@ const STATUS_FILTERS = [
   { value: 'Unpaid',   label: 'Unpaid'   },
 ];
 
-export default function AllBillsView({ visible, search, setSearch, from, setFrom, to, setTo, onEdit, onPay, onDelete }) {
+export default function AllBillsView({ visible, search, setSearch, from, setFrom, to, setTo, onEdit, onPay, onDelete, title = 'Bills & Payments' }) {
   const [page, setPage]                 = React.useState(1);
   const [pageSize, setPageSize]         = React.useState(50);
   const [supplierFilter, setSupplierFilter] = React.useState('All');
@@ -99,21 +99,21 @@ export default function AllBillsView({ visible, search, setSearch, from, setFrom
   const sortedGroups = Object.values(groups).sort((a, b) => (a.date < b.date ? 1 : -1));
 
   return (
-    <section style={S.page}>
+    <section className="bills-view" style={S.page}>
 
       {/* ── Toolbar ── */}
-      <div style={S.toolbar}>
+      <div className="bills-toolbar" style={S.toolbar}>
         <div style={S.toolbarLeft}>
           <span style={S.eyebrow}>ALL BILLS</span>
-          <h2 style={S.toolbarTitle}>Bills &amp; Payments</h2>
+          <h2 style={S.toolbarTitle}>{title}</h2>
         </div>
 
         {/* Search */}
-        <div style={S.searchWrap}>
+        <div className="bill-search" style={S.searchWrap}>
           <span style={S.searchIcon}>⌕</span>
           <input
             style={S.searchInput}
-            placeholder="Supplier, bill no, voucher…"
+            aria-label="Search bills" placeholder="Supplier, bill no, voucher…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -123,26 +123,26 @@ export default function AllBillsView({ visible, search, setSearch, from, setFrom
         </div>
 
         {/* Date range */}
-        <div style={S.dateWrap}>
+        <div className="bill-dates" style={S.dateWrap}>
           <div style={S.dateGroup}>
             <label style={S.dateLabel}>From</label>
-            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={S.dateInput} />
+            <input aria-label="From date" type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={S.dateInput} />
           </div>
           <span style={S.dateSep}>→</span>
           <div style={S.dateGroup}>
             <label style={S.dateLabel}>To</label>
-            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={S.dateInput} />
+            <input aria-label="To date" type="date" value={to} onChange={(e) => setTo(e.target.value)} style={S.dateInput} />
           </div>
         </div>
       </div>
 
       {/* ── Filter bar ── */}
-      <div style={S.filterBar}>
+      <div className="bill-filters" style={S.filterBar}>
         {/* Supplier select */}
         <div style={S.filterGroup}>
           <span style={S.filterLabel}>Supplier</span>
           <select
-            style={S.filterSelect}
+            aria-label="Filter by supplier" style={S.filterSelect}
             value={supplierFilter}
             onChange={(e) => { setSupplierFilter(e.target.value); setPage(1); }}
           >
@@ -152,7 +152,7 @@ export default function AllBillsView({ visible, search, setSearch, from, setFrom
         </div>
 
         {/* Status pills */}
-        <div style={S.statusPills}>
+        <div className="status-pills" style={S.statusPills}>
           {STATUS_FILTERS.map((s) => (
             <button
               key={s.value}
@@ -177,7 +177,7 @@ export default function AllBillsView({ visible, search, setSearch, from, setFrom
 
       {/* ── Grand totals strip ── */}
       {filteredList.length > 0 && (
-        <div style={S.totalsStrip}>
+        <div className="bill-totals" style={S.totalsStrip}>
           <TotalChip label="Gross"    value={`Rs ${money(grand.gross)}`} />
           <div style={S.totalsDivider} />
           <TotalChip label="Payable"  value={`Rs ${money(grand.actual)}`} />
@@ -188,8 +188,27 @@ export default function AllBillsView({ visible, search, setSearch, from, setFrom
         </div>
       )}
 
+      <div className="mobile-bill-list">
+        {pageSlice.length === 0 && <div className="mobile-empty"><span>✓</span><h3>No bills here</h3><p>Try another date range or filter. Add a bill to get started.</p></div>}
+        {pageSlice.map(b => <article className="mobile-bill-card" key={b.sync_id}>
+          <button type="button" className="bill-card-heading" onClick={() => toggleBill(b.sync_id)} aria-expanded={expandedBills.has(b.sync_id)}>
+            <div><small>{b.posting_date} · {b.supplier_bill_no || 'No bill number'}</small><h3>{b.supplier_name}</h3></div>
+            <StatusBadge status={b.payment_status} />
+          </button>
+          <div className="bill-card-amounts"><div><small>Payable</small><strong>Rs {money(b.actual_amount)}</strong></div><div><small>Remaining</small><strong className="balance">Rs {money(b.remaining_balance)}</strong></div></div>
+          <div className="bill-card-actions"><button type="button" onClick={() => toggleBill(b.sync_id)} aria-expanded={expandedBills.has(b.sync_id)}>{expandedBills.has(b.sync_id) ? 'Hide details ↑' : 'Details ↓'}</button><button type="button" className="primary" onClick={() => onPay(b)} disabled={Number(b.remaining_balance) <= 0}>Record payment</button></div>
+          {expandedBills.has(b.sync_id) && <div className="bill-card-details">
+            <dl><div><dt>Bill date</dt><dd>{b.bill_date}</dd></div><div><dt>Voucher</dt><dd>{b.voucher_no || '—'}</dd></div><div><dt>Gross</dt><dd>Rs {money(b.total_bill_amount)}</dd></div><div><dt>Tax ({b.tax_percent}%)</dt><dd>Rs {money(b.tax_amount)}</dd></div><div><dt>Total paid</dt><dd>Rs {money(b.paid_amount)}</dd></div><div><dt>Category</dt><dd>{b.category?.replaceAll('_',' ')}</dd></div></dl>
+            {b.remarks && <p>{b.remarks}</p>}
+            <h4>Payments ({b.payments?.length || 0})</h4>
+            {b.payments?.map(p => <div className="mobile-payment" key={p.sync_id}><div><strong>Rs {money(p.amount)}</strong><small>{p.payment_date} · {p.payment_mode?.replaceAll('_',' ')}</small>{p.reference_no && <small>{p.reference_no}</small>}{p.remarks && <small>{p.remarks}</small>}</div><button className="danger" aria-label="Delete payment" onClick={() => onDelete(p, 'payment')}>Delete</button></div>)}
+            <div className="bill-card-actions"><button onClick={() => onEdit(b)}>Edit bill</button><button className="danger" onClick={() => onDelete(b)}>Delete bill</button></div>
+          </div>}
+        </article>)}
+      </div>
+
       {/* ── Table area ── */}
-      <div style={S.tableWrap}>
+      <div className="desktop-bill-table" style={S.tableWrap}>
         {sortedGroups.length === 0 ? (
           <div style={S.empty}>
             <div style={S.emptyIcon}>🗂</div>
@@ -324,12 +343,12 @@ export default function AllBillsView({ visible, search, setSearch, from, setFrom
       </div>
 
       {/* ── Pagination bar ── */}
-      <div style={S.paginationBar}>
+      <div className="bill-pagination" style={S.paginationBar}>
         <span style={S.pageInfo}>
           Showing <strong>{start}–{end}</strong> of <strong>{filteredList.length}</strong> bills
         </span>
 
-        <div style={S.pageControls}>
+        <div className="page-controls" style={S.pageControls}>
           <PageBtn disabled={page === 1} onClick={() => setPage(1)}>«</PageBtn>
           <PageBtn disabled={page === 1} onClick={() => setPage((p) => p - 1)}>‹ Prev</PageBtn>
           <span style={S.pageNum}>Page {page} / {totalPages}</span>
@@ -340,7 +359,7 @@ export default function AllBillsView({ visible, search, setSearch, from, setFrom
         <div style={S.pageSizeWrap}>
           <span style={S.pageSizeLabel}>Show</span>
           <select
-            style={S.pageSizeSelect}
+            aria-label="Bills per page" style={S.pageSizeSelect}
             value={pageSize}
             onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
           >
