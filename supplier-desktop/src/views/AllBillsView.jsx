@@ -63,7 +63,13 @@ export default function AllBillsView({ visible, search, setSearch, from, setFrom
 
   const filteredList = visible.filter(
     (b) => (supplierFilter === 'All' || b.supplier_name === supplierFilter) && matchesStatus(b),
-  );
+  ).sort((a, b) => {
+    const left = String(a.voucher_no ?? '').trim();
+    const right = String(b.voucher_no ?? '').trim();
+    if (!left) return right ? 1 : 0;
+    if (!right) return -1;
+    return right.localeCompare(left, undefined, { numeric: true, sensitivity: 'base' });
+  });
 
   const totalPages  = Math.max(1, Math.ceil(filteredList.length / pageSize));
   const startIndex  = (page - 1) * pageSize;
@@ -84,19 +90,19 @@ export default function AllBillsView({ visible, search, setSearch, from, setFrom
     { gross: 0, actual: 0, paid: 0, balance: 0 },
   );
 
-  const groups = pageSlice.reduce((acc, b) => {
-    const key = b.posting_date || b.bill_date || 'Unknown';
-    if (!acc[key]) acc[key] = { date: key, items: [], totals: { gross: 0, tax: 0, actual: 0, paid: 0, balance: 0 } };
-    acc[key].items.push(b);
-    acc[key].totals.gross   += Number(b.total_bill_amount  || 0);
-    acc[key].totals.tax     += Number(b.tax_amount         || 0);
-    acc[key].totals.actual  += Number(b.actual_amount      || 0);
-    acc[key].totals.paid    += Number(b.paid_amount        || 0);
-    acc[key].totals.balance += Number(b.remaining_balance  || 0);
+  const pageTotals = pageSlice.reduce((acc, b) => {
+    acc.gross   += Number(b.total_bill_amount  || 0);
+    acc.tax     += Number(b.tax_amount         || 0);
+    acc.actual  += Number(b.actual_amount      || 0);
+    acc.paid    += Number(b.paid_amount        || 0);
+    acc.balance += Number(b.remaining_balance  || 0);
     return acc;
-  }, {});
+  }, { gross: 0, tax: 0, actual: 0, paid: 0, balance: 0 });
 
-  const sortedGroups = Object.values(groups).sort((a, b) => (a.date < b.date ? 1 : -1));
+  // Keep one table so date grouping cannot override voucher order across dates.
+  const sortedGroups = pageSlice.length ? [{
+    date: 'Abuzar voucher: Highest first', items: pageSlice, totals: pageTotals,
+  }] : [];
 
   return (
     <section style={S.page}>
