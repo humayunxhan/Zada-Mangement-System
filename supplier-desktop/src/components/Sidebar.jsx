@@ -1,4 +1,5 @@
 import React from 'react';
+import Icon from './Icon';
 
 export default function Sidebar({ tabs, activeTab, onChange, currentUser, onLogout }) {
   const initials = currentUser?.full_name
@@ -13,9 +14,8 @@ export default function Sidebar({ tabs, activeTab, onChange, currentUser, onLogo
   return (
     <aside className="sidebar">
       <div className="brand-box">
-        <small>ZADA PHARMACY</small>
-        <h2>Supplier Desk</h2>
-        <div className="system-badge">WEB & VPS ONLINE</div>
+        <span className="pharmacy-mark"><Icon name="pharmacy" size={25} /></span>
+        <div><h2>Zada Pharmacy</h2><p>Supplier desk</p></div>
       </div>
 
       <nav className="side-nav" aria-label="Sidebar navigation">
@@ -24,10 +24,11 @@ export default function Sidebar({ tabs, activeTab, onChange, currentUser, onLogo
             key={tab.id}
             type="button"
             className={activeTab === tab.id ? 'nav-tab active' : 'nav-tab'}
+            aria-current={activeTab === tab.id ? 'page' : undefined}
             onClick={() => onChange(tab.id)}
           >
-            {tab.icon && <span className="tab-icon">{tab.icon}</span>}
-            {tab.label}
+            <Icon name={tab.icon} size={19} />
+            <span>{tab.label}</span>
           </button>
         ))}
       </nav>
@@ -39,7 +40,7 @@ export default function Sidebar({ tabs, activeTab, onChange, currentUser, onLogo
             <span className="user-name">{currentUser?.full_name || 'Staff User'}</span>
             <div className="user-role-row">
               <span className={`badge-role badge-${currentUser?.role || 'operator'}`}>
-                {(currentUser?.role || 'operator').toUpperCase()}
+                {currentUser?.role === 'admin' ? 'Administrator' : 'Operator'}
               </span>
               <span className="user-username">@{currentUser?.username}</span>
             </div>
@@ -47,7 +48,7 @@ export default function Sidebar({ tabs, activeTab, onChange, currentUser, onLogo
         </div>
 
         <button type="button" className="btn-logout" onClick={onLogout} title="Log Out">
-          🚪 Sign Out
+          <Icon name="logout" size={18} /> Sign out
         </button>
       </div>
     </aside>

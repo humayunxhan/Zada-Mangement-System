@@ -1,13 +1,18 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import Icon from './components/Icon';
+import Modal from './components/Modal';
+import Feedback from './components/Feedback';
 import Sidebar from './components/Sidebar';
 import SummaryView from './views/SummaryView';
 import AddBillView from './views/AddBillView';
 import AllBillsView from './views/AllBillsView';
+import ReturnsView from './views/ReturnsView';
 import UsersView from './views/UsersView';
 import LoginView from './views/LoginView';
+import { newSyncId } from './ids';
 import { api, getSavedUser, setToken, setSavedUser } from './api';
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Karachi' });
 const money = (v) => Number(v || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
 
 const blank = () => ({
@@ -20,6 +25,7 @@ const blank = () => ({
   tax_percent: '0',
   category: 'PAYABLE',
   remarks: '',
+  payment_sync_id: newSyncId(),
   record_payment: false,
   payment_date: today(),
   payment_amount: '',
@@ -32,11 +38,14 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState(() => getSavedUser());
   const [authChecking, setAuthChecking] = useState(true);
 
+  const [returning, setReturning] = useState(null);
+  const [syncStatus, setSyncStatus] = useState(null);
   const [items, setItems] = useState([]);
   const [form, setForm] = useState(blank());
   const [paying, setPaying] = useState(null);
   const [confirming, setConfirming] = useState(null);
   const [payment, setPayment] = useState({
+    sync_id: newSyncId(),
     payment_date: today(),
     amount: '',
     payment_mode: 'CHEQUE',
@@ -48,6 +57,15 @@ export default function App() {
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState('summary');
   const [errorMsg, setErrorMsg] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [savingBill, setSavingBill] = useState(false);
+  const [savingPayment, setSavingPayment] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [formError, setFormError] = useState('');
+  const [paymentError, setPaymentError] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+  const [notice, setNotice] = useState('');
+  const requestSequence = useRef(0);
 
   // Check current user session on load
   useEffect(() => {
@@ -58,7 +76,8 @@ export default function App() {
           setCurrentUser(res.user);
           setSavedUser(res.user);
         }
-      } catch {
+      } catch (e) {
+        if (window.supplierAPI && currentUser && !String(e.message).includes('Session expired')) return;
         setCurrentUser(null);
         setSavedUser(null);
         setToken(null);
@@ -79,24 +98,14 @@ export default function App() {
   // Load bills when user is logged in
   const load = async () => {
     if (!currentUser) return;
+    const sequence = ++requestSequence.current;
+    setLoading(true);
     try {
-      setErrorMsg('');
       const data = await api.bills.list({ from, to });
-      setItems(data || []);
+      if (sequence === requestSequence.current) { setItems(data || []); setErrorMsg(''); }
     } catch (err) {
-      console.error('Failed to load bills:', err);
-      // Fallback to electron API if offline / dev electron
-      if (window.supplierAPI) {
-        try {
-          const fallbackData = await window.supplierAPI.list({ from, to });
-          setItems(fallbackData || []);
-          return;
-        } catch {
-          // Ignore
-        }
-      }
-      setErrorMsg(err.message || 'Failed to load records from MySQL server');
-    }
+      if (sequence === requestSequence.current) setErrorMsg(err.message || 'Could not load bills. Check the connection and try again.');
+    } finally { if (sequence === requestSequence.current) setLoading(false); }
   };
 
   useEffect(() => {
@@ -107,26 +116,38 @@ export default function App() {
 
   const tabs = useMemo(() => {
     const list = [
-      { id: 'summary', label: 'Summary', icon: '📊' },
-      { id: 'bills', label: 'Add Bill(s)', icon: '📝' },
-      { id: 'all', label: 'All Bills', icon: '📑' },
+      { id: 'summary', label: 'Overview', icon: 'overview' },
+      { id: 'bills', label: 'Add a bill', icon: 'plus' },
+      { id: 'all', label: 'All bills', icon: 'bill' },
+      { id: 'returns', label: 'Returns & credits', icon: 'returns' },
     ];
     if (currentUser?.role === 'admin') {
-      list.push({ id: 'users', label: 'Users & Staff', icon: '👥' });
+      list.push({ id: 'users', label: 'Team access', icon: 'users' });
     }
     return list;
   }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const check = () => api.returns.syncStatus().then(setSyncStatus).catch(() => {});
+    void check(); const timer = setInterval(check, 15000);
+    return () => clearInterval(timer);
+  }, [currentUser, items]);
 
   const totals = useMemo(() => {
     return items.reduce(
       (s, b) => ({
         gross: s.gross + Number(b.total_bill_amount || 0),
         tax: s.tax + Number(b.tax_amount || 0),
-        actual: s.actual + (b.category === 'PAYABLE' ? Number(b.actual_amount || 0) : 0),
+        actual: s.actual + (Number(b.net_payable || 0)),
         paid: s.paid + Number(b.paid_amount || 0),
         balance: s.balance + Number(b.remaining_balance || 0),
+        credit: s.credit + Number(b.pending_credit || 0),
+        returned: s.returned + Number(b.returned_amount || 0),
+        refunded: s.refunded + Number(b.refund_amount || 0),
+        adjusted: s.adjusted + Number(b.credit_applied || 0),
       }),
-      { gross: 0, tax: 0, actual: 0, paid: 0, balance: 0 }
+      { gross: 0, tax: 0, actual: 0, paid: 0, balance: 0, credit: 0, returned: 0, refunded: 0, adjusted: 0 }
     );
   }, [items]);
 
@@ -143,21 +164,19 @@ export default function App() {
 
   async function save(e) {
     e.preventDefault();
+    if (savingBill) return;
+    setSavingBill(true); setFormError(''); setNotice('');
+    let billSaved = false;
     try {
-      let saved = null;
-      try {
-        saved = await api.bills.save(form);
-      } catch (err) {
-        if (window.supplierAPI) {
-          saved = await window.supplierAPI.saveBill(form);
-        } else {
-          throw err;
-        }
-      }
+      const payload = { ...form, sync_id: form.sync_id || newSyncId() };
+      setForm(payload);
+      const saved = await api.bills.save(payload);
+      billSaved = true;
 
       // Record immediate payment if checked
       if (form.record_payment && Number(form.payment_amount) > 0 && saved?.sync_id) {
         const paymentPayload = {
+          sync_id: form.payment_sync_id,
           bill_sync_id: saved.sync_id,
           payment_date: form.payment_date || form.posting_date || today(),
           amount: Number(form.payment_amount),
@@ -166,48 +185,37 @@ export default function App() {
           remarks: form.payment_remarks || (form.remarks ? `Paid with bill: ${form.remarks}` : 'Payment recorded on bill entry'),
         };
 
-        try {
-          await api.payments.add(paymentPayload);
-        } catch (paymentErr) {
-          if (window.supplierAPI) {
-            await window.supplierAPI.addPayment(paymentPayload);
-          } else {
-            console.error('Error recording payment:', paymentErr);
-          }
-        }
+        await api.payments.add(paymentPayload);
       }
 
+      setNotice(form.record_payment && Number(form.payment_amount) > 0 ? 'Bill and payment saved.' : 'Supplier bill saved.');
       setForm(blank());
       setActiveTab('all');
       await load();
     } catch (err) {
-      alert(`Error saving bill: ${err.message}`);
-    }
+      setFormError(billSaved ? `Bill saved, but the payment could not be recorded. ${err.message} Your entries are kept; retry to finish the payment.` : err.message);
+    } finally { setSavingBill(false); }
   }
 
   async function pay(e) {
     e.preventDefault();
+    if (savingPayment) return;
+    setSavingPayment(true); setPaymentError('');
     try {
       const paymentPayload = { ...payment, bill_sync_id: paying.sync_id };
-      try {
-        await api.payments.add(paymentPayload);
-      } catch (err) {
-        if (window.supplierAPI) {
-          await window.supplierAPI.addPayment(paymentPayload);
-        } else {
-          throw err;
-        }
-      }
+      await api.payments.add(paymentPayload);
 
+      setNotice('Payment recorded.');
       setPaying(null);
-      setPayment({ payment_date: today(), amount: '', payment_mode: 'CHEQUE', reference_no: '', remarks: '' });
+      setPayment({ sync_id: newSyncId(), payment_date: today(), amount: '', payment_mode: 'CHEQUE', reference_no: '', remarks: '' });
       await load();
     } catch (err) {
-      alert(`Error recording payment: ${err.message}`);
-    }
+      setPaymentError(err.message);
+    } finally { setSavingPayment(false); }
   }
 
   function onEditBill(b) {
+    setFormError(''); setNotice('');
     setForm({
       ...blank(),
       ...b,
@@ -221,6 +229,7 @@ export default function App() {
   }
 
   function onDeleteBill(record, kind = 'bill') {
+    setDeleteError('');
     setConfirming({
       kind,
       id: record.sync_id,
@@ -239,7 +248,7 @@ export default function App() {
     return (
       <div className="login-screen">
         <div className="login-container" style={{ textAlign: 'center' }}>
-          <p style={{ color: '#34d399', fontWeight: 'bold' }}>Loading Zada SPMS...</p>
+          <div className="loading-state" role="status"><span className="loading-spinner" />Opening supplier desk…</div>
         </div>
       </div>
     );
@@ -258,7 +267,9 @@ export default function App() {
             setForm={setForm}
             suppliers={suppliers}
             onSave={save}
-            onCancel={() => setForm(blank())}
+            saving={savingBill}
+            error={formError}
+            onCancel={() => { setForm(blank()); setFormError(''); }}
           />
         );
       case 'all':
@@ -272,141 +283,69 @@ export default function App() {
             to={to}
             setTo={setTo}
             onEdit={onEditBill}
-            onPay={setPaying}
+            onPay={(bill) => { setPaymentError(''); setPaying(bill); }}
+            loading={loading}
             onDelete={onDeleteBill}
+            onReturn={(b) => { setNotice(''); setReturning(b); setActiveTab('returns'); }}
           />
         );
+      case 'returns':
+        return <ReturnsView key={returning?.sync_id || 'returns'} initialBill={returning} onChanged={load} />;
       case 'users':
         return <UsersView currentUser={currentUser} />;
       default:
-        return <SummaryView totals={totals} items={items} />;
+        return <SummaryView totals={totals} items={items} from={from} to={to} setFrom={setFrom} setTo={setTo} onAddBill={() => { setForm(blank()); setFormError(''); setActiveTab('bills'); }} onViewBills={() => setActiveTab('all')} />;
     }
   }
 
   return (
     <div className="app-shell">
+      <a className="skip-link" href="#workspace">Skip to content</a>
       <Sidebar
         tabs={tabs}
         activeTab={activeTab}
-        onChange={setActiveTab}
+        onChange={(tab) => { setReturning(null); setFormError(''); setNotice(''); setActiveTab(tab); }}
         currentUser={currentUser}
         onLogout={handleLogout}
       />
 
-      <div className="content-shell">
-        <header>
-          <div>
-            <small>ZADA PHARMACY</small>
-            <h1>Supplier Reconciliation</h1>
-            <p>Bills, payments and outstanding balances · MySQL Hosted</p>
-          </div>
-          <div className="live">● LIVE MYSQL</div>
+      <main className="content-shell" id="workspace" tabIndex={-1}>
+        <header className="app-header">
+          <div><h1>Supplier reconciliation</h1><p>Zada Pharmacy / {window.supplierAPI ? 'Desktop workspace' : 'Shared workspace'}</p></div>
+          <div className="header-tools"><span className="today-label">{new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Karachi' })}</span>{['summary', 'all'].includes(activeTab) && <button type="button" className="icon-button" aria-label="Refresh bills" onClick={load} disabled={loading}><Icon name="refresh" className={loading ? 'is-loading' : ''} /></button>}</div>
         </header>
+        {errorMsg && <Feedback>{errorMsg} <button type="button" className="quiet-button" onClick={load} disabled={loading}>Try again</button></Feedback>}
+        {notice && <Feedback tone="success" onDismiss={() => setNotice('')}>{notice}</Feedback>}
+        {syncStatus && (syncStatus.pending > 0 || syncStatus.error) && <Feedback tone="success">Changes saved. {syncStatus.pending} update{syncStatus.pending === 1 ? '' : 's'} waiting to reach CEO reports.{syncStatus.error ? ' Check the connection if this persists.' : ''}</Feedback>}
+        {loading && !items.length && ['summary', 'all'].includes(activeTab) ? <div className="loading-state" role="status"><span className="loading-spinner" />Loading supplier records…</div> : renderTab()}
+      </main>
 
-        {errorMsg && (
-          <div className="alert-error" style={{ marginBottom: 18 }}>
-            ⚠️ {errorMsg}
-          </div>
-        )}
-
-        {renderTab()}
-      </div>
-
-      {paying && (
-        <div className="overlay">
-          <form className="modal" onSubmit={pay}>
-            <h2>Record Payment</h2>
-            <p>
-              {paying.supplier_name} · Balance Rs {money(paying.remaining_balance)}
-            </p>
-            <label>
-              Payment Date
-              <input
-                type="date"
-                value={payment.payment_date}
-                onChange={(e) => setPayment((prev) => ({ ...prev, payment_date: e.target.value }))}
-              />
-            </label>
-            <label>
-              Amount
-              <input
-                type="number"
-                max={paying.remaining_balance}
-                required
-                value={payment.amount}
-                onChange={(e) => setPayment((prev) => ({ ...prev, amount: e.target.value }))}
-              />
-            </label>
-            <label>
-              Mode
-              <select
-                value={payment.payment_mode}
-                onChange={(e) => setPayment((prev) => ({ ...prev, payment_mode: e.target.value }))}
-              >
-                <option>CHEQUE</option>
-                <option>ONLINE_TRANSFER</option>
-                <option>COUNTER_CASH</option>
-                <option>CASH_FROM_AFTAB</option>
-                <option>OTHER</option>
-              </select>
-            </label>
-            <label>
-              Reference / Cheque No.
-              <input
-                value={payment.reference_no}
-                onChange={(e) => setPayment((prev) => ({ ...prev, reference_no: e.target.value }))}
-              />
-            </label>
-            <label>
-              Remarks
-              <textarea
-                value={payment.remarks}
-                onChange={(e) => setPayment((prev) => ({ ...prev, remarks: e.target.value }))}
-              />
-            </label>
-            <button className="primary">Save Payment</button>
-            <button type="button" onClick={() => setPaying(null)}>
-              Cancel
-            </button>
-          </form>
-        </div>
-      )}
-
-      {confirming && (
-        <div className="overlay">
-          <div className="modal">
-            <h2>Confirm deletion</h2>
-            <p>
-              Are you sure you want to delete {confirming.label}? This will update the MySQL database.
-            </p>
-            <button
-              className="danger"
-              onClick={async () => {
-                try {
-                  if (confirming.kind === 'bill') {
-                    await api.bills.delete(confirming.id);
-                  } else {
-                    await api.payments.delete(confirming.id);
-                  }
-                } catch (delErr) {
-                  if (window.supplierAPI) {
-                    confirming.kind === 'bill'
-                      ? await window.supplierAPI.deleteBill(confirming.id)
-                      : await window.supplierAPI.deletePayment(confirming.id);
-                  } else {
-                    alert(delErr.message);
-                  }
-                }
-                setConfirming(null);
-                await load();
-              }}
-            >
-              Yes, delete
-            </button>
-            <button onClick={() => setConfirming(null)}>Cancel</button>
-          </div>
-        </div>
-      )}
+      {paying && <Modal title="Record payment" onClose={() => setPaying(null)} busy={savingPayment}>
+        <form onSubmit={pay}>
+          <p className="dialog-description">{paying.supplier_name} / Bill {paying.supplier_bill_no || paying.voucher_no || '—'}</p>
+          <div className="dialog-balance"><span>Remaining payable</span><strong>Rs {money(paying.remaining_balance)}</strong></div>
+          <fieldset disabled={savingPayment} className="dialog-fields">
+            <div className="field-grid"><label>Payment date<input autoFocus type="date" required value={payment.payment_date} onChange={e => setPayment(p => ({ ...p, payment_date: e.target.value }))} /></label><label>Amount (Rs)<input type="number" min="0.01" step="0.01" max={paying.remaining_balance} required value={payment.amount} onChange={e => setPayment(p => ({ ...p, amount: e.target.value }))} /></label></div>
+            <label>Payment method<select value={payment.payment_mode} onChange={e => setPayment(p => ({ ...p, payment_mode: e.target.value }))}>{[['CHEQUE','Cheque'],['ONLINE_TRANSFER','Bank transfer'],['COUNTER_CASH','Counter cash'],['CASH_FROM_AFTAB','Cash from Aftab'],['OTHER','Other']].map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+            <label>Reference or cheque number<input maxLength={100} value={payment.reference_no} onChange={e => setPayment(p => ({ ...p, reference_no: e.target.value }))} /></label>
+            <label>Remarks<textarea value={payment.remarks} onChange={e => setPayment(p => ({ ...p, remarks: e.target.value }))} /></label>
+          </fieldset>
+          {paymentError && <Feedback>{paymentError}</Feedback>}
+          <div className="dialog-actions"><button type="button" onClick={() => setPaying(null)} disabled={savingPayment}>Cancel</button><button className="primary" disabled={savingPayment}>{savingPayment ? 'Saving payment…' : 'Save payment'}</button></div>
+        </form>
+      </Modal>}
+      {confirming && <Modal title="Delete record?" onClose={() => setConfirming(null)} busy={deleting}>
+        <p className="dialog-description">Delete {confirming.label}? The balance and payment history will be recalculated.</p>
+        {deleteError && <Feedback>{deleteError}</Feedback>}
+        <div className="dialog-actions"><button onClick={() => setConfirming(null)} disabled={deleting}>Keep record</button><button className="danger" disabled={deleting} onClick={async () => {
+          if (deleting) return;
+          setDeleting(true); setDeleteError('');
+          try {
+            if (confirming.kind === 'bill') await api.bills.delete(confirming.id); else await api.payments.delete(confirming.id);
+            setConfirming(null); setNotice('Record deleted.'); await load();
+          } catch (e) { setDeleteError(e.message); } finally { setDeleting(false); }
+        }}>{deleting ? 'Deleting…' : 'Delete record'}</button></div>
+      </Modal>}
     </div>
   );
 }

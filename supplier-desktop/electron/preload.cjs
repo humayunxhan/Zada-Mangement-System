@@ -6,4 +6,6 @@ contextBridge.exposeInMainWorld('supplierAPI', {
   addPayment: (data) => ipcRenderer.invoke('supplier:add-payment', data),
   deletePayment: (id) => ipcRenderer.invoke('supplier:delete-payment', id),
   suppliers: () => ipcRenderer.invoke('supplier:names'),
+  recordEvent: (data) => ipcRenderer.invoke('supplier:record-event', data),
+  syncStatus: () => ipcRenderer.invoke('supplier:sync-status'),
 });

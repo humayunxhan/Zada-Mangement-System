@@ -432,3 +432,45 @@
     grid-template-columns: 1fr;
   }
 }
+/* Supplier returns and credit settlement */
+.returns-page { display: flex; flex-direction: column; gap: 20px; }
+.returns-heading, .returns-toolbar, .return-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.returns-heading { justify-content: space-between; }
+.returns-heading h2, .returns-heading h3 { margin: 5px 0; }
+.returns-heading small { color: #34d399; letter-spacing: 1px; }
+.returns-heading p { color: #94a3b8; margin-bottom: 0; }
+.returns-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 12px; }
+.returns-kpis > div { background: #0d1729; border: 1px solid #24324a; padding: 20px; border-radius: 14px; display: flex; flex-direction: column; gap: 10px; }
+.returns-kpis small, .returns-table small { color: #94a3b8; }
+.returns-kpis strong { font-size: 22px; color: #c4b5fd; }
+.returns-toolbar label { flex: 1; min-width: 180px; }
+.returns-table { overflow-x: auto; background: #0d1729; border: 1px solid #24324a; border-radius: 14px; }
+.returns-table table { width: 100%; border-collapse: collapse; min-width: 750px; }
+.returns-table th { text-align: left; color: #94a3b8; font-size: 12px; background: #111e32; }
+.returns-table th, .returns-table td { padding: 14px 16px; border-bottom: 1px solid #1e293b; }
+.returns-table td { font-size: 13px; }
+.returns-table small { display: block; margin-top: 5px; }
+.returns-table button { padding: 7px 10px; font-size: 12px; }
+.credit-value { color: #c4b5fd; font-weight: 700; }
+.returns-empty { padding: 16px; color: #94a3b8; }
+.return-notice { padding: 12px; background: #0a2e22; color: #6ee7b7; border-radius: 10px; }
+.return-sync { color: #fbbf24; font-size: 13px; }
+.return-dialog { color: #e2e8f0; width: min(560px, calc(100vw - 40px)); max-height: 85vh; overflow-y: auto; border: 1px solid #334155; background: #0d1729; margin: auto; }
+.return-dialog::backdrop { background: rgb(0 0 0 / 70%); }
+.return-dialog label { display: flex; flex-direction: column; gap: 7px; margin: 14px 0; }
+.return-dialog p, .return-dialog label small { color: #94a3b8; font-size: 13px; line-height: 1.5; }
+.return-dialog .return-preview { padding: 12px; background: #172554; color: #bfdbfe; border-radius: 10px; }
+.returns-page button:focus-visible, .returns-page input:focus-visible, .returns-page select:focus-visible, .returns-page textarea:focus-visible { outline: 2px solid #34d399; outline-offset: 3px; }
+@media (max-width: 700px) { .returns-kpis { grid-template-columns: 1fr 1fr; } .returns-kpis strong { font-size: 18px; } }
+@media (max-width: 700px) {
+  .app-shell { flex-direction: column; }
+  .sidebar { width: 100%; height: auto; position: static; padding: 14px; }
+  .brand-box { padding: 6px 8px 12px; margin-bottom: 10px; }
+  .side-nav { flex-direction: row; flex-wrap: wrap; gap: 6px; }
+  .nav-tab { padding: 9px 12px; flex: 1 1 140px; }
+  .sidebar-footer { margin-top: 12px; display: flex; gap: 8px; align-items: center; }
+  .user-profile-card { flex: 1; }
+  .content-shell { padding: 16px; }
+  .content-shell header { flex-wrap: wrap; gap: 12px; }
+  .returns-kpis > div { padding: 14px; }
+}

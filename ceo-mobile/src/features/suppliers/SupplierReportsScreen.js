@@ -122,7 +122,7 @@ export function SupplierReportsScreen() {
   useEffect(() => {
     load();
     const socket = createLiveSocket();
-    ['v1.supplier-bill.updated', 'v1.supplier-bill.deleted', 'v1.supplier-payment.updated', 'v1.supplier-payment.deleted'].forEach((event) =>
+    ['v1.supplier-bill.updated', 'v1.supplier-bill.deleted', 'v1.supplier-payment.updated', 'v1.supplier-payment.deleted', 'v1.supplier-ledger.updated'].forEach((event) =>
       socket.on(event, load)
     );
     return () => socket.disconnect();
@@ -183,10 +183,22 @@ export function SupplierReportsScreen() {
         <StatCard label="Actual Payable" value={s.actualPayable} color="#60a5fa" />
         <StatCard label="Total Paid" value={s.totalPaid} color="#34d399" />
         <StatCard label="Outstanding" value={s.outstandingBalance} color="#fb7185" />
+        <StatCard label="Pending Credit - All Bills" value={s.supplierCreditAllBills || 0} color="#c4b5fd" />
+        <StatCard label="Returns in Period" value={s.returnedInPeriod || 0} color="#93c5fd" />
+        <StatCard label="Refunds in Period" value={s.refundedInPeriod || 0} color="#34d399" />
+        <StatCard label="Credit Adjusted in Period" value={s.adjustedInPeriod || 0} color="#a78bfa" />
         <StatCard label="Total Bills" value={s.totalBills} color="#e2e8f0" />
         <StatCard label="Pending Bills" value={s.pendingBills} color="#f97316" />
         <StatCard label="Overdue Bills" value={s.overdueBills} color="#ef4444" />
       </View>
+      <Text style={[styles.title, {fontSize:18, marginTop:20}]}>Returns & Settlements</Text>
+      {(report.activity || []).map(e => <View key={e.syncId} style={{backgroundColor:'#0d1729',padding:14,borderRadius:12,marginTop:10}}>
+        <Text style={{color:'#e2e8f0',fontWeight:'800'}}>{e.supplierName} / Bill {e.supplierBillNo || '-'}</Text>
+        <Text style={{color:'#93c5fd',marginTop:6}}>{e.eventDate} / {e.kind === 'RETURN' ? 'Stock return' : e.kind === 'REFUND' ? 'Refund received' : 'Credit adjustment'} / Rs {Number(e.amount).toLocaleString()}</Text>
+        {e.targetBillNo ? <Text style={{color:'#94a3b8',marginTop:4}}>To bill {e.targetBillNo}</Text> : null}
+        <Text style={{color:'#94a3b8',marginTop:4}}>{[e.referenceNo,e.remarks].filter(Boolean).join(' / ')}</Text>
+      </View>)}
+      {!(report.activity || []).length && <Text style={{color:'#94a3b8',marginTop:10}}>No return or settlement activity in this period.</Text>}
     </ScrollView>
   );
 }

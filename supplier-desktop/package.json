@@ -11,6 +11,7 @@
     "dev": "vite",
     "start": "electron .",
     "build": "vite build",
+    "test": "node --test electron/returns.test.cjs",
     "server": "node server/index.js",
     "start:web": "vite build && node server/index.js",
     "app": "vite build && electron .",
@@ -26,6 +27,7 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
+      { "from": "../server/src/modules/suppliers/ledger.cjs", "to": "electron/supplier-ledger.cjs" },
       "build/icon.ico",
       "package.json"
     ],

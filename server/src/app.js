@@ -13,7 +13,7 @@ export function createApp() {
   const app = express();
   app.use(helmet());
   app.use(cors());
-  app.use(express.json({ limit: '5mb' }));
+  app.use(express.json({ limit: '10mb' }));
   app.use(morgan('tiny'));
   app.get('/', (_, res) => res.json({
     ok: true,
@@ -38,7 +38,7 @@ export function createApp() {
   app.use('/api/v1/suppliers', supplierRoutes);
   app.use((error, req, res, next) => {
     console.error(error);
-    res.status(error?.name === 'ZodError' ? 400 : 500).json({ message: error.message || 'Server error' });
+    res.status(error.status || (error?.name === 'ZodError' ? 400 : 500)).json({ message: error.message || 'Server error' });
   });
   return app;
 }

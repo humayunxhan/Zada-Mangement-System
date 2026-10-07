@@ -32,3 +32,7 @@ CEO_SERVER_URL=http://SERVER_LAN_IP:4100
 CEO_PHARMACY_ID=zada-pharmacy
 CEO_BRANCH_ID=main
 ```
+
+Supplier returns and settlements sync through `POST /api/v1/suppliers/snapshot`. Deploy this version before upgrading the supplier app. Snapshot updates and financial API mutations use MongoDB transactions and require Atlas or a replica set. Versions are checked per source, accounting history is preserved, and a committed snapshot emits `v1.supplier-ledger.updated` for the CEO app.
+
+Supplier bill reports include reduced net payable, pending credit, return/refund/adjustment history, and activity totals filtered by the activity date. `/daily` also groups returns and settlements on those dates even when the original bill falls outside the period. The supplier summary screen displays pending credit across all active bills separately from period activity. Run `npm test` for the accounting and snapshot validation checks.

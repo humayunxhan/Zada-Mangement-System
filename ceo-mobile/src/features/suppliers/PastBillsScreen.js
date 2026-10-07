@@ -62,6 +62,8 @@ const STATUS_META = [
   { key: 'complete', label: 'Paid',   color: '#34d399' },
   { key: 'partial', label: 'Partial', color: '#fbbf24' },
   { key: 'unpaid',  label: 'Unpaid',  color: '#fb7185' },
+  { key: 'returned', label: 'Returned', color: '#93c5fd' },
+  { key: 'credit', label: 'Credit Pending', color: '#c4b5fd' },
   { key: 'overdue', label: 'Overdue', color: '#ef4444' },
 ];
 
@@ -98,7 +100,7 @@ export function PastBillsScreen() {
   useEffect(() => {
     load();
     const socket = createLiveSocket();
-    ['v1.supplier-bill.updated', 'v1.supplier-bill.deleted', 'v1.supplier-payment.updated', 'v1.supplier-payment.deleted']
+    ['v1.supplier-bill.updated', 'v1.supplier-bill.deleted', 'v1.supplier-payment.updated', 'v1.supplier-payment.deleted', 'v1.supplier-ledger.updated']
       .forEach((ev) => socket.on(ev, load));
     return () => socket.disconnect();
   }, [load]);
@@ -115,8 +117,9 @@ export function PastBillsScreen() {
 
   const filtered = useMemo(() => {
     let list = bills;
-    if (statusFilter !== 'all')
-      list = list.filter((b) => (b.paymentStatus || '').toLowerCase() === statusFilter);
+    if (statusFilter === 'credit') list = list.filter(b => b.pendingCredit > 0);
+    else if (statusFilter === 'returned') list = list.filter(b => b.returnedAmount > 0);
+    else if (statusFilter !== 'all') list = list.filter((b) => (b.paymentStatus || '').toLowerCase() === statusFilter);
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       list = list.filter(
@@ -131,7 +134,7 @@ export function PastBillsScreen() {
 
   const totals = useMemo(() => ({
     gross:   filtered.reduce((s, b) => s + Number(b.totalBillAmount || 0), 0),
-    payable: filtered.reduce((s, b) => s + Number(b.actualAmount    || 0), 0),
+    payable: filtered.reduce((s, b) => s + Number(b.netPayable      || 0), 0),
     paid:    filtered.reduce((s, b) => s + Number(b.paidAmount      || 0), 0),
     balance: filtered.reduce((s, b) => s + Number(b.remainingBalance|| 0), 0),
   }), [filtered]);
@@ -329,7 +332,7 @@ function BillRow({ item, expanded, onPress }) {
           <Text style={styles.billDate}>{formatDate(item.billDate || item.postingDate)}</Text>
         </View>
         <View style={{ alignItems: 'flex-end' }}>
-          <Text style={styles.amount}>{money(item.actualAmount || 0)}</Text>
+          <Text style={styles.amount}>{money(item.netPayable ?? item.actualAmount ?? 0)}</Text>
           <View style={[styles.statusBadge, { backgroundColor: statusColor + '1a', borderColor: statusColor }]}>
             <Text style={[styles.statusText, { color: statusColor }]}>
               {item.paymentStatus || 'UNPAID'}
@@ -342,13 +345,22 @@ function BillRow({ item, expanded, onPress }) {
         <View style={styles.detail}>
           <DetailRow label="Gross Amount"  value={money(item.totalBillAmount || 0)} />
           <DetailRow label="Tax Deduction" value={money(item.taxAmount       || 0)} />
-          <DetailRow label="Actual Payable"value={money(item.actualAmount    || 0)} />
+          <DetailRow label="Actual Payable"value={money(item.netPayable ?? item.actualAmount ?? 0)} />
           <DetailRow label="Paid"          value={money(item.paidAmount      || 0)} color="#34d399" />
           <DetailRow
             label="Balance"
             value={money(item.remainingBalance || 0)}
             color={Number(item.remainingBalance || 0) > 0 ? '#fbbf24' : '#34d399'}
           />
+          {item.returnedAmount > 0 && <DetailRow label={item.returnStatus === 'RETURNED' ? 'Returned' : 'Partially Returned'} value={`${formatDate(item.lastReturnDate)} / ${money(item.returnedAmount)}`} color="#93c5fd" />}
+          {item.pendingCredit > 0 && <DetailRow label="Credit Pending" value={money(item.pendingCredit)} color="#c4b5fd" />}
+          {item.refundAmount > 0 && <DetailRow label="Refunds Received" value={money(item.refundAmount)} color="#34d399" />}
+          {item.creditApplied > 0 && <DetailRow label="Credit Applied" value={money(item.creditApplied)} />}
+          {item.creditUsed > 0 && <DetailRow label="Credit Used on Other Bills" value={money(item.creditUsed)} />}
+          {(item.ledgerEvents || []).map(e => <View key={e.syncId} style={{paddingTop:8,borderTopWidth:1,borderColor:'#1e293b'}}>
+            <Text style={{color:'#93c5fd',fontSize:12}}>{e.eventDate} / {e.kind} / {money(e.amount)}</Text>
+            <Text style={{color:'#94a3b8',fontSize:12,marginTop:4}}>{[e.paymentMode,e.referenceNo,e.remarks].filter(Boolean).join(' / ')}</Text>
+          </View>)}
           {item.dueDate  && <DetailRow label="Due Date" value={formatDate(item.dueDate)} />}
           {item.category && <DetailRow label="Category" value={item.category} />}
           {item.remarks  && <DetailRow label="Remarks"  value={item.remarks} />}
