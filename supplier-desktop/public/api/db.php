@@ -26,12 +26,12 @@ function get_db() {
         http_response_code(500);
         header('Content-Type: application/json; charset=utf-8');
         echo json_encode([
-            'error' => 'Database connection failed. Please verify database credentials in api/config.php. Error: ' . $e->getMessage()
+            'error' => 'Service temporarily unavailable. Please contact the administrator.'
         ]);
         exit;
     }
 
-    init_schema($pdo, $cfg);
+    // Schema provisioning is CLI-only; requests never create users or tables.
     return $pdo;
 }
 
@@ -101,8 +101,9 @@ function init_schema($pdo, $cfg) {
     $stmt = $pdo->query("SELECT COUNT(*) as count FROM users");
     $row = $stmt->fetch();
     if ($row && (int)$row['count'] === 0) {
-        $user = !empty($cfg['default_admin_user']) ? $cfg['default_admin_user'] : 'admin';
-        $pass = !empty($cfg['default_admin_pass']) ? $cfg['default_admin_pass'] : 'admin123';
+        $user = $cfg['default_admin_user'] ?? '';
+        $pass = $cfg['default_admin_pass'] ?? '';
+        if (!$user || strlen($pass) < 16) throw new RuntimeException('A strong initial admin credential is required');
         $hash = password_hash($pass, PASSWORD_BCRYPT);
 
         $ins = $pdo->prepare("INSERT INTO users (username, password_hash, full_name, role, status) VALUES (?, ?, ?, 'admin', 'active')");

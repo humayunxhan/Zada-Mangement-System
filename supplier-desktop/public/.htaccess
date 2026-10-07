@@ -1,18 +1,36 @@
-# ====================================================================
-# Zada Pharmacy SPMS - Hostinger Apache / LiteSpeed Configuration
-# ====================================================================
-
+Options -Indexes
+DirectoryIndex index.html
+AddType application/manifest+json .webmanifest
 RewriteEngine On
 RewriteBase /
 
-# Pass Authorization Header to PHP (Crucial for JWT tokens on Hostinger)
+# Never expose this private portal through another hostname or the parent site's folder.
+RewriteCond %{HTTP_HOST} !^spms\.zadapharmacy\.com$ [NC]
+RewriteRule ^ - [R=404,L]
+RewriteCond %{HTTPS} !=on
+RewriteCond %{HTTP:X-Forwarded-Proto} !https [NC]
+RewriteRule ^ https://spms.zadapharmacy.com%{REQUEST_URI} [R=301,L]
+
+<IfModule mod_headers.c>
+    Header always set X-Robots-Tag "noindex, nofollow, noarchive, nosnippet"
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "same-origin"
+    Header always set X-Frame-Options "DENY"
+    Header always set Cache-Control "private, no-store, max-age=0"
+</IfModule>
+
+# Permit certificate renewal challenges.
+RewriteRule ^\.well-known/acme-challenge/ - [L]
+
+# API includes must never be requested directly.
+RewriteRule ^api/(config|db|jwt|ledger|finance|records)\.php$ - [F,L,NC]
+RewriteRule (^|/)(\.|.*\.(sql|sqlite|log|bak|env|zip|tar|gz)$) - [F,L,NC]
+
 RewriteCond %{HTTP:Authorization} ^(.*)
-RewriteRule .* - [e=HTTP_AUTHORIZATION:%1]
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%1]
+RewriteRule ^api/index\.php$ - [L]
+RewriteRule ^api(?:/.*)?$ api/index.php [QSA,L]
 
-# Route all /api/* requests to the PHP REST API handler
-RewriteRule ^api/(.*)$ api/index.php [QSA,L]
-
-# For all other routes, serve the file if it exists, otherwise send to React index.html
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^ index.html [L]

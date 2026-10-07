@@ -40,7 +40,7 @@ const STATUS_FILTERS = [
   { value: 'Unpaid',   label: 'Unpaid'   },
 ];
 
-export default function AllBillsView({ visible, search, setSearch, from, setFrom, to, setTo, onEdit, onPay, onDelete, onReturn, loading }) {
+export default function AllBillsView({ visible, search, setSearch, from, setFrom, to, setTo, onEdit, onPay, onDelete, onReturn, loading, title='Bills & payments' }) {
   const [page, setPage]                 = React.useState(1);
   const [pageSize, setPageSize]         = React.useState(50);
   const [supplierFilter, setSupplierFilter] = React.useState('All');
@@ -124,7 +124,7 @@ export default function AllBillsView({ visible, search, setSearch, from, setFrom
       <div className="bills-toolbar">
         <div style={S.toolbarLeft}>
 
-          <h2 style={S.toolbarTitle}>Bills &amp; payments</h2>
+          <h2 style={S.toolbarTitle}>{title}</h2>
         </div>
 
         {/* Search */}
@@ -209,9 +209,27 @@ export default function AllBillsView({ visible, search, setSearch, from, setFrom
       )}
 
       <ExportControls ids={filteredList.map(b => b.sync_id)} disabled={loading || !filteredList.length} />
+      <div className="mobile-bill-list">
+        {pageSlice.length === 0 && <div className="mobile-empty"><span>✓</span><h3>No bills here</h3><p>Try another date range or filter. Add a bill to get started.</p></div>}
+        {pageSlice.map(b => <article className="mobile-bill-card" key={b.sync_id}>
+          <button type="button" className="bill-card-heading" onClick={() => toggleBill(b.sync_id)} aria-expanded={expandedBills.has(b.sync_id)}>
+            <div><small>{b.posting_date} · {b.supplier_bill_no || 'No bill number'}</small><h3>{b.supplier_name}</h3></div>
+            <StatusBadge status={b.payment_status} />
+          </button>
+          <div className="bill-card-amounts"><div><small>Payable</small><strong>Rs {money(b.net_payable)}</strong></div><div><small>Remaining</small><strong className="balance">Rs {money(b.remaining_balance)}</strong></div></div>
+          <div className="bill-card-actions"><button type="button" onClick={() => toggleBill(b.sync_id)} aria-expanded={expandedBills.has(b.sync_id)}>{expandedBills.has(b.sync_id) ? 'Hide details ↑' : 'Details ↓'}</button><button type="button" className="primary" onClick={() => onPay(b)} disabled={Number(b.remaining_balance) <= 0}>Record payment</button></div>
+          {['PAYABLE','BILL_TO_BILL'].includes(b.category) && Number(b.actual_amount)>Number(b.returned_amount||0) && <div className="bill-card-actions"><button onClick={()=>onReturn(b)}>Return stock</button></div>}{expandedBills.has(b.sync_id) && <div className="bill-card-details"><p>Returned Rs {money(b.returned_amount)} · Pending credit Rs {money(b.pending_credit)}</p>
+            <dl><div><dt>Bill date</dt><dd>{b.bill_date}</dd></div><div><dt>Voucher</dt><dd>{b.voucher_no || '—'}</dd></div><div><dt>Gross</dt><dd>Rs {money(b.total_bill_amount)}</dd></div><div><dt>Tax ({b.tax_percent}%)</dt><dd>Rs {money(b.tax_amount)}</dd></div><div><dt>Total paid</dt><dd>Rs {money(b.paid_amount)}</dd></div><div><dt>Category</dt><dd>{b.category?.replaceAll('_',' ')}</dd></div></dl>
+            {b.remarks && <p>{b.remarks}</p>}
+            {b.ledgerEvents?.map(e=><div className="mobile-payment" key={e.syncId}><div><strong>{e.kind} · Rs {money(e.amount)}</strong><small>{e.eventDate} · {e.remarks}</small></div></div>)}<h4>Payments ({b.payments?.length || 0})</h4>
+            {b.payments?.map(p => <div className="mobile-payment" key={p.sync_id}><div><strong>Rs {money(p.amount)}</strong><small>{p.payment_date} · {p.payment_mode?.replaceAll('_',' ')}</small>{p.reference_no && <small>{p.reference_no}</small>}{p.remarks && <small>{p.remarks}</small>}</div>{!b.ledgerEvents?.length && <button className="danger" aria-label="Delete payment" onClick={() => onDelete(p, 'payment')}>Delete</button>}</div>)}
+            <div className="bill-card-actions">{!b.ledgerEvents?.length && <button onClick={() => onEdit(b)}>Edit bill</button>}{!b.ledgerEvents?.length && !b.payments?.length && <button className="danger" onClick={() => onDelete(b)}>Delete bill</button>}</div>
+          </div>}
+        </article>)}
+      </div>
 
       {/* ── Table area ── */}
-      <div style={S.tableWrap}>
+      <div className="desktop-bill-table" style={S.tableWrap}>
         {sortedGroups.length === 0 ? (
           <div style={S.empty}>
             <div style={S.emptyIcon}><Icon name="bill" size={30} /></div>
@@ -356,7 +374,7 @@ export default function AllBillsView({ visible, search, setSearch, from, setFrom
       </div>
 
       {/* ── Pagination bar ── */}
-      <div style={S.paginationBar}>
+      <div className="bill-pagination" style={S.paginationBar}>
         <span style={S.pageInfo}>
           Showing <strong>{start}–{end}</strong> of <strong>{filteredList.length}</strong> bills
         </span>

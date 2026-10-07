@@ -1,3 +1,5 @@
+import DeveloperCredits from '../components/DeveloperCredits';
+import InstallApp from '../components/InstallApp';
 import React, { useState } from 'react';
 import Icon from '../components/Icon';
 import Feedback from '../components/Feedback';
@@ -78,10 +80,12 @@ export default function LoginView({ onLoginSuccess }) {
             {loading ? 'Signing in…' : 'Sign in'}
           </button>
 
+          <InstallApp />
           <div className="login-footer">
             <small>Need access? Ask your pharmacy administrator.</small>
           </div>
         </form>
+        <DeveloperCredits />
       </div>
     </div>
   );

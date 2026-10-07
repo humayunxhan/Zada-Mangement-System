@@ -115,7 +115,7 @@ export default function UsersView({ currentUser }) {
               <input
                 type="password" autoComplete="new-password"
                 required
-                minLength={6}
+                minLength={12}
                 placeholder="••••••••"
                 value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })}

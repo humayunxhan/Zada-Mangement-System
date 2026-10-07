@@ -1,11 +1,11 @@
 import React from 'react';
 import Feedback from '../components/Feedback';
 const money = v => Number(v || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
-export default function AddBillView({ form, setForm, suppliers = [], onSave, onCancel, saving, error }) {
+export default function AddBillView({ form, setForm, suppliers = [], onSave, onCancel, saving, error, online = true }) {
   const gross = Number(form.total_bill_amount || 0), tax = gross * Number(form.tax_percent || 0) / 100;
   const payable = Math.max(0, gross - tax), paid = Number(form.payment_amount || 0);
   const patch = values => setForm(p => ({ ...p, ...values }));
-  const field = (name, label, options = {}) => <label className={options.wide ? 'field-wide' : ''} htmlFor={`bill-${name}`}>{label}<input id={`bill-${name}`} type={options.type || 'text'} value={form[name] ?? ''} onChange={e => patch({ [name]: e.target.value })} required={options.required} min={options.min} max={options.max} step={options.step} placeholder={options.placeholder} list={options.list} /></label>;
+  const field = (name, label, options = {}) => <label className={options.wide ? 'field-wide' : ''} htmlFor={`bill-${name}`}>{label}<input id={`bill-${name}`} type={options.type || 'text'} inputMode={options.type==='number'?'decimal':undefined} value={form[name] ?? ''} onChange={e => patch({ [name]: e.target.value })} required={options.required} min={options.min} max={options.max} step={options.step} placeholder={options.placeholder} list={options.list} /></label>;
   return <form className="bill-form" onSubmit={onSave}>
     <div className="page-heading"><div><h2>{form.sync_id ? 'Edit supplier bill' : 'Add a supplier bill'}</h2><p>Enter the invoice details. Record a payment now, or settle it later.</p></div></div>
     <fieldset disabled={saving} className="bill-fields">
@@ -33,6 +33,6 @@ export default function AddBillView({ form, setForm, suppliers = [], onSave, onC
       </section>
     </fieldset>
     {error && <Feedback>{error}</Feedback>}
-    <div className="form-actions"><button className="primary" disabled={saving}>{saving ? 'Saving bill…' : form.record_payment && paid > 0 ? 'Save bill & payment' : 'Save bill'}</button>{form.sync_id && <button type="button" onClick={onCancel} disabled={saving}>Cancel edit</button>}</div>
+    <div className="form-actions"><button className="primary" disabled={saving || !online}>{saving ? 'Saving bill…' : form.record_payment && paid > 0 ? 'Save bill & payment' : 'Save bill'}</button>{form.sync_id && <button type="button" onClick={onCancel} disabled={saving}>Cancel edit</button>}</div>
   </form>;
 }

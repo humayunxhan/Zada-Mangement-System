@@ -49,6 +49,10 @@ app-builds/
 .gemini/
 
 dist-installers
+# Private SPMS deployment outputs
+dist-php/
+spms-private/
+*.credentials.json
 # Supplier automatic financial backups
 supplier-desktop/server/backups/
 *.sqlite.pending
