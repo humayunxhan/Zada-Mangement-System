@@ -70,6 +70,8 @@ export default function AllBillsView({ visible, search, setSearch, from, setFrom
   const filteredList = visible.filter(
     (b) => (supplierFilter === 'All' || b.supplier_name === supplierFilter) && matchesStatus(b),
   ).sort((a, b) => {
+    const dateOrder = String(b.posting_date || '').localeCompare(String(a.posting_date || ''));
+    if (dateOrder) return dateOrder;
     const left = String(a.voucher_no ?? '').trim();
     const right = String(b.voucher_no ?? '').trim();
     if (!left) return right ? 1 : 0;
@@ -96,19 +98,23 @@ export default function AllBillsView({ visible, search, setSearch, from, setFrom
     { gross: 0, actual: 0, paid: 0, balance: 0 },
   );
 
-  const pageTotals = pageSlice.reduce((acc, b) => {
-    acc.gross   += Number(b.total_bill_amount  || 0);
-    acc.tax     += Number(b.tax_amount         || 0);
-    acc.actual  += Number(b.net_payable        || 0);
-    acc.paid    += Number(b.paid_amount        || 0);
-    acc.balance += Number(b.remaining_balance  || 0);
-    return acc;
-  }, { gross: 0, tax: 0, actual: 0, paid: 0, balance: 0 });
-
-  // Keep one table so date grouping cannot override voucher order across dates.
-  const sortedGroups = pageSlice.length ? [{
-    date: 'Abuzar voucher: Highest first', items: pageSlice, totals: pageTotals,
-  }] : [];
+  // Group the paginated records by posting date, newest first.
+  // Voucher order stays descending within each date.
+  const groups = new Map();
+  pageSlice.forEach(b => {
+    const date = b.posting_date || 'Undated';
+    if (!groups.has(date)) groups.set(date, {
+      date, items: [], totals: { gross: 0, tax: 0, actual: 0, paid: 0, balance: 0 },
+    });
+    const group = groups.get(date);
+    group.items.push(b);
+    group.totals.gross += Number(b.total_bill_amount || 0);
+    group.totals.tax += Number(b.tax_amount || 0);
+    group.totals.actual += Number(b.net_payable || 0);
+    group.totals.paid += Number(b.paid_amount || 0);
+    group.totals.balance += Number(b.remaining_balance || 0);
+  });
+  const sortedGroups = [...groups.values()];
 
   return (
     <section style={S.page} className="all-bills-view" aria-busy={loading}>
