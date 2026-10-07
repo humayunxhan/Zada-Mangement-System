@@ -49,3 +49,6 @@ app-builds/
 .gemini/
 
 dist-installers
+# Supplier automatic financial backups
+supplier-desktop/server/backups/
+*.sqlite.pending

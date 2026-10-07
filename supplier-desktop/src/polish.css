@@ -1631,3 +1631,26 @@ strong,dd {
 .returns-table table[hidden] {
   display:none
 }
+
+.export-block { margin: 0 0 18px; }
+.export-controls, .record-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.export-controls { justify-content: flex-end; margin-bottom: 12px; }
+.export-controls label { display: flex; align-items: center; gap: 8px; }
+.export-controls select { margin: 0; width: auto; }
+.export-controls button { font-size: 12px; }
+.records-view { display: grid; gap: 22px; min-width: 0; }
+.records-view .page-heading { margin: 0; }
+.records-view .form-section { min-width: 0; }
+.records-view .tableWrap { margin-top: 18px; }
+.records-table { min-width: 650px; }
+.records-table th { text-transform: none; color: var(--muted); font-size: 12px; }
+.records-table td { font-size: 12px; overflow-wrap: anywhere; }
+.audit-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin: 20px 0; }
+.audit-filters label { flex: 1; min-width: 130px; }
+.audit-json { white-space: pre-wrap; overflow-wrap: anywhere; padding: 14px; border: 1px solid var(--line); border-radius: 7px; background: var(--canvas); font-size: 12px; max-height: 240px; overflow: auto; }
+.file-button { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; background: var(--raised); }
+.file-button input { max-width: 270px; font-size: 12px; }
+.duplicate-matches { display: grid; gap: 12px; margin: 18px 0; }
+.duplicate-matches>div { padding: 14px; background: var(--canvas); border: 1px solid var(--line); border-radius: 7px; }
+.duplicate-matches small { display: block; margin-top: 5px; color: var(--muted); }
+@media (max-width: 700px) { .export-controls { justify-content: flex-start; } .records-view .form-section { padding: 18px 14px; } }

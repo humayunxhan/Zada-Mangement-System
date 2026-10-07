@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs'); const os = require('os'); const path = require('path');
 const db = require('./db.cjs');
+const cleanup = require('./test-cleanup.cjs');
 test('offline return, refund and adjustment persist atomically with the CEO sync snapshot', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'zada-returns-test-'));
   try {
@@ -41,7 +42,7 @@ test('offline return, refund and adjustment persist atomically with the CEO sync
     db.completeSync(db.syncJob().id); assert.equal(db.syncStatus().pending, 0);
   } finally {
     // This is a test-created directory; remove only its known database and directory.
-    fs.unlinkSync(path.join(dir, 'supplier-reconciliation.sqlite')); fs.rmdirSync(dir);
+    cleanup(dir);
   }
 });
 
@@ -66,6 +67,6 @@ test('offline bill-to-bill payments persist and sync without automatically settl
     assert.equal(old.payments.length, 2); assert.equal(old.payments[0].payment_date, '2026-10-07');
     assert.equal(db.list().find(b => b.sync_id === 'next').remaining_balance, 7000);
   } finally {
-    fs.unlinkSync(path.join(dir, 'supplier-reconciliation.sqlite')); fs.rmdirSync(dir);
+    cleanup(dir);
   }
 });

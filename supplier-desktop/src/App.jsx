@@ -7,6 +7,7 @@ import SummaryView from './views/SummaryView';
 import AddBillView from './views/AddBillView';
 import AllBillsView from './views/AllBillsView';
 import ReturnsView from './views/ReturnsView';
+import RecordsView from './views/RecordsView';
 import UsersView from './views/UsersView';
 import LoginView from './views/LoginView';
 import { newSyncId } from './ids';
@@ -65,6 +66,7 @@ export default function App() {
   const [paymentError, setPaymentError] = useState('');
   const [deleteError, setDeleteError] = useState('');
   const [notice, setNotice] = useState('');
+  const [duplicateWarning, setDuplicateWarning] = useState(null);
   const requestSequence = useRef(0);
 
   // Check current user session on load
@@ -123,6 +125,7 @@ export default function App() {
     ];
     if (currentUser?.role === 'admin') {
       list.push({ id: 'users', label: 'Team access', icon: 'users' });
+      list.push({ id: 'records', label: 'Backups & audit', icon: 'lock' });
     }
     return list;
   }, [currentUser]);
@@ -162,13 +165,16 @@ export default function App() {
     [items]
   );
 
-  async function save(e) {
-    e.preventDefault();
+  async function save(e, acknowledged = []) {
+    e?.preventDefault();
     if (savingBill) return;
     setSavingBill(true); setFormError(''); setNotice('');
     let billSaved = false;
     try {
-      const payload = { ...form, sync_id: form.sync_id || newSyncId() };
+      const payload = { ...form, sync_id: form.sync_id || newSyncId(), duplicate_acknowledged: acknowledged };
+      const matches = await api.records.duplicates(payload);
+      if (matches.some(b => !acknowledged.includes(b.sync_id))) { setDuplicateWarning(matches); return; }
+      setDuplicateWarning(null);
       setForm(payload);
       const saved = await api.bills.save(payload);
       billSaved = true;
@@ -291,6 +297,8 @@ export default function App() {
         );
       case 'returns':
         return <ReturnsView key={returning?.sync_id || 'returns'} initialBill={returning} onChanged={load} />;
+      case 'records':
+        return <RecordsView onChanged={load} />;
       case 'users':
         return <UsersView currentUser={currentUser} />;
       default:
@@ -316,10 +324,12 @@ export default function App() {
         </header>
         {errorMsg && <Feedback>{errorMsg} <button type="button" className="quiet-button" onClick={load} disabled={loading}>Try again</button></Feedback>}
         {notice && <Feedback tone="success" onDismiss={() => setNotice('')}>{notice}</Feedback>}
-        {syncStatus && (syncStatus.pending > 0 || syncStatus.error) && <Feedback tone="success">Changes saved. {syncStatus.pending} update{syncStatus.pending === 1 ? '' : 's'} waiting to reach CEO reports.{syncStatus.error ? ' Check the connection if this persists.' : ''}</Feedback>}
+        {syncStatus?.recoveryRequired && <Feedback>The local database needs recovery. An administrator can restore a saved backup from Backups &amp; audit before entering records.</Feedback>}
+        {syncStatus && !syncStatus.recoveryRequired && (syncStatus.pending > 0 || syncStatus.error) && <Feedback tone="success">Changes saved. {syncStatus.pending} update{syncStatus.pending === 1 ? '' : 's'} waiting to reach CEO reports.{syncStatus.error ? ' Check the connection if this persists.' : ''}</Feedback>}
         {loading && !items.length && ['summary', 'all'].includes(activeTab) ? <div className="loading-state" role="status"><span className="loading-spinner" />Loading supplier records…</div> : renderTab()}
       </main>
 
+      {duplicateWarning && <Modal title="Possible duplicate invoice" busy={savingBill} onClose={() => setDuplicateWarning(null)}><p>This supplier already has the same invoice number. Review the existing entries before saving another bill.</p><div className="duplicate-matches">{duplicateWarning.map(b => <div key={b.sync_id}><strong>{b.supplier_name} / {b.supplier_bill_no}</strong><small>Posted {b.posting_date} · Rs {money(b.total_bill_amount)} · Voucher {b.voucher_no || '—'}</small></div>)}</div>{formError && <Feedback>{formError}</Feedback>}<div className="dialog-actions"><button disabled={savingBill} onClick={() => setDuplicateWarning(null)}>Go back</button><button className="primary" disabled={savingBill} onClick={() => save(null,duplicateWarning.map(b => b.sync_id))}>{savingBill?'Saving…':'Save anyway'}</button></div></Modal>}
       {paying && <Modal title="Record payment" onClose={() => setPaying(null)} busy={savingPayment}>
         <form onSubmit={pay}>
           <p className="dialog-description">{paying.supplier_name} / Bill {paying.supplier_bill_no || paying.voucher_no || '—'}</p>

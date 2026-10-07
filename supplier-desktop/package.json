@@ -11,7 +11,7 @@
     "dev": "vite",
     "start": "electron .",
     "build": "vite build",
-    "test": "node --test electron/returns.test.cjs",
+    "test": "node --test electron/returns.test.cjs electron/management.test.cjs shared/export.test.cjs server/management.test.cjs",
     "server": "node server/index.js",
     "start:web": "vite build && node server/index.js",
     "app": "vite build && electron .",
@@ -20,14 +20,18 @@
   "build": {
     "appId": "com.zadapharmacy.spms",
     "productName": "Zada Pharmacy SPMS",
-    "copyright": "Copyright © 2026 Zada Pharmacy",
+    "copyright": "Copyright \u00c2\u00a9 2026 Zada Pharmacy",
     "directories": {
       "output": "dist-installers"
     },
     "files": [
       "dist/**/*",
       "electron/**/*",
-      { "from": "../server/src/modules/suppliers/ledger.cjs", "to": "electron/supplier-ledger.cjs" },
+      "shared/**/*",
+      {
+        "from": "../server/src/modules/suppliers/ledger.cjs",
+        "to": "electron/supplier-ledger.cjs"
+      },
       "build/icon.ico",
       "package.json"
     ],
@@ -52,6 +56,7 @@
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^18.0.5",
+    "exceljs": "^4.4.0",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "mysql2": "^3.24.5",

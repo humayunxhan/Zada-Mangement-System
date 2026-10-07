@@ -1,4 +1,5 @@
 import React from 'react';
+import ExportControls from '../components/ExportControls';
 import Icon from '../components/Icon';
 
 const money = (v) => Number(v || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -206,6 +207,8 @@ export default function AllBillsView({ visible, search, setSearch, from, setFrom
           <TotalChip label="Balance"  value={`Rs ${money(grand.balance)}`} color={grand.balance > 0 ? '#fbbf24' : '#34d399'} />
         </div>
       )}
+
+      <ExportControls ids={filteredList.map(b => b.sync_id)} disabled={loading || !filteredList.length} />
 
       {/* ── Table area ── */}
       <div style={S.tableWrap}>

@@ -65,10 +65,20 @@ async function request(endpoint, options = {}) {
   return data;
 }
 
+const session = () => ({ token: getToken() });
 export const api = {
+  records: {
+    duplicates: data => window.supplierAPI ? window.supplierAPI.duplicates(data,session()) : request('/api/records/duplicates',{method:'POST',body:JSON.stringify(data)}),
+    exportData: data => window.supplierAPI ? window.supplierAPI.exportData(data,session()) : request('/api/records/export',{method:'POST',body:JSON.stringify(data)}),
+    backupList: () => window.supplierAPI ? window.supplierAPI.backupList(null,session()) : request('/api/records/backups'),
+    createBackup: () => window.supplierAPI ? window.supplierAPI.createBackup(null,session()) : request('/api/records/backups',{method:'POST'}),
+    downloadBackup: id => window.supplierAPI ? window.supplierAPI.downloadBackup(id,session()) : request(`/api/records/backups/${encodeURIComponent(id)}`),
+    restoreBackup: data => window.supplierAPI ? window.supplierAPI.restoreBackup(data.id || data.backup,session()) : request('/api/records/restore',{method:'POST',body:JSON.stringify(data)}),
+    auditList: filters => window.supplierAPI ? window.supplierAPI.auditList(filters,session()) : request(`/api/records/audit?${new URLSearchParams(filters)}`),
+  },
   returns: {
-    record: data => window.supplierAPI ? window.supplierAPI.recordEvent(data) : request('/api/returns', { method: 'POST', body: JSON.stringify(data) }),
-    syncStatus: () => window.supplierAPI ? window.supplierAPI.syncStatus() : request('/api/returns/sync-status'),
+    record: data => window.supplierAPI ? window.supplierAPI.recordEvent(data,session()) : request('/api/returns', { method: 'POST', body: JSON.stringify(data) }),
+    syncStatus: () => window.supplierAPI ? window.supplierAPI.syncStatus(null,session()) : request('/api/returns/sync-status'),
   },
   // Auth API
   auth: {
@@ -114,7 +124,7 @@ export const api = {
   // Bills API
   bills: {
     list: async (filters = {}) => {
-      if (window.supplierAPI) return window.supplierAPI.list(filters);
+      if (window.supplierAPI) return window.supplierAPI.list(filters,session());
       const params = new URLSearchParams();
       if (filters.from) params.append('from', filters.from);
       if (filters.to) params.append('to', filters.to);
@@ -123,20 +133,20 @@ export const api = {
       return request(`/api/bills${query}`);
     },
     save: async (billData) => {
-      if (window.supplierAPI) return window.supplierAPI.saveBill(billData);
+      if (window.supplierAPI) return window.supplierAPI.saveBill(billData,session());
       return request('/api/bills', {
         method: 'POST',
         body: JSON.stringify(billData),
       });
     },
     delete: async (syncId) => {
-      if (window.supplierAPI) return window.supplierAPI.deleteBill(syncId);
+      if (window.supplierAPI) return window.supplierAPI.deleteBill(syncId,session());
       return request(`/api/bills/${encodeURIComponent(syncId)}`, {
         method: 'DELETE',
       });
     },
     suppliers: async () => {
-      if (window.supplierAPI) return window.supplierAPI.suppliers();
+      if (window.supplierAPI) return window.supplierAPI.suppliers(null,session());
       return request('/api/bills/suppliers');
     },
   },
@@ -144,14 +154,14 @@ export const api = {
   // Payments API
   payments: {
     add: async (paymentData) => {
-      if (window.supplierAPI) return window.supplierAPI.addPayment(paymentData);
+      if (window.supplierAPI) return window.supplierAPI.addPayment(paymentData,session());
       return request('/api/payments', {
         method: 'POST',
         body: JSON.stringify(paymentData),
       });
     },
     delete: async (syncId) => {
-      if (window.supplierAPI) return window.supplierAPI.deletePayment(syncId);
+      if (window.supplierAPI) return window.supplierAPI.deletePayment(syncId,session());
       return request(`/api/payments/${encodeURIComponent(syncId)}`, {
         method: 'DELETE',
       });

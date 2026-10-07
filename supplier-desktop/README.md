@@ -32,3 +32,22 @@ Deploy the updated CEO server **before** running the upgraded supplier app. Conf
 ## Verification
 
 Install dependencies in both `server` and `supplier-desktop`. Run `npm test` in each folder and `npm run build` in `supplier-desktop`. Tests cover full/partial paid and unpaid returns, credit limits, same-supplier adjustments, refunds, retry idempotency, preserved history, cross-period reporting, snapshot validation and SQLite restart persistence. No test writes to the live databases.
+
+
+## Backups, audit history and exports
+
+Administrators can open **Backups & audit** to create/download backups, restore a server/local backup or choose a downloaded JSON backup, and inspect change history. The Electron app and Node/MySQL server check for a daily backup on startup and hourly while running; the latest 30 files are retained. Electron stores backups under its data folder in `backups`; the Node server uses `supplier-desktop/server/backups` or `BACKUP_DIR`. Configure a persistent writable backup directory on hosted servers. Download copies to a separate drive/device for protection against disk loss.
+
+Backups contain bills, payments, immutable return/credit events, audit entries and the database sync identity. They exclude user accounts, passwords, credentials and session tokens. Restore requires typing **RESTORE**, validates the checksum and financial relationships, and creates a safety copy before changing data. Existing audit entries are retained and protected settlement history cannot be removed. Missing newer financial records are preserved as deletion markers for CEO sync. Sync versions advance after restoration. A backup from another database can be restored into an empty database; stop the original installation before recovering its sync identity on another computer. The updated CEO server must be deployed to enforce restored-snapshot protection and removals.
+
+If Electron cannot read its SQLite database, it preserves the unreadable file, blocks new financial entries and automatic backups, and lets an administrator recover from **Backups & audit**. Explicit restore retains the damaged database as a separate safety file before saving the recovered records. Hosted MySQL itself must be accessible before application-level restore can run; these financial backups do not replace infrastructure/database-server recovery.
+
+Changes to bills, payments, returns, refunds, adjustments and web accounts record actor, UTC time, action, record ID and relevant before/after values. Financial changes and their audit entries commit together. Reads, polling and refreshes are not logged. Audit dates are filtered by Pakistan calendar dates and displayed in Pakistan time; exported audit timestamps are explicitly labelled UTC. Audit exports respect the chosen filters and limit (up to 1,000 entries per export).
+
+**All bills** exports the complete filtered set, across pagination, as bills or linked payments. **Returns & credits** also exports filtered bills/payments and separately the dated return activity. Choose **Export Excel** for a genuine `.xlsx` workbook or **Export CSV** for UTF-8 CSV. Leading-zero references, numeric amounts, quoting, Urdu text and spreadsheet formula safety are preserved. Excel generation loads only when requested.
+
+Duplicate checks compare normalized supplier name and invoice number, ignore deleted records and exclude the bill being edited. The warning shows existing matching entries; **Save anyway** explicitly acknowledges those IDs. The storage layer repeats the check inside the financial transaction to prevent races. Confirmed duplicates are identifiable in their audit details.
+
+Electron audit attribution and administrative management use signed session tokens. Set the Electron process's `JWT_SECRET` to match a customized authentication server; development can load it from `supplier-desktop/.env`. The existing Node/PHP development signing keys remain compatible when no custom key is configured. Do not place signing secrets in frontend environment variables.
+
+Run `npm test` in `supplier-desktop` for persistence, restore/recovery, duplicate, CSV/XLSX and mocked MySQL/permission tests. Shared accounting and CEO snapshot tests remain in `server`. Tests use disposable databases or mocks, never live financial records.

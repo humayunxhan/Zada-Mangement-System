@@ -58,3 +58,28 @@ test('bill-to-bill settlements sync and contribute to CEO payable totals', () =>
   assert.equal(totals.actualPayable, 7000); assert.equal(totals.outstandingBalance, 4000);
   assert.equal(totals.totalPaid, 4000); assert.equal(totals.pendingCredit, 0);
 });
+
+
+test('restored full snapshots hide newer owned records and protect history outside incoming IDs', async t => {
+  const mongoose = (await import('mongoose')).default;
+  const { applySnapshot } = await import('./supplier-snapshot.service.js');
+  const { SupplierPayment } = await import('./supplier-payment.model.js');
+  const { SupplierSyncState } = await import('./supplier-ledger.model.js');
+  t.mock.method(mongoose.connection,'transaction',async fn=>fn({}));
+  t.mock.method(SupplierSyncState,'updateOne',async()=>({}));
+  t.mock.method(SupplierSyncState,'findOneAndUpdate',()=>({lean:async()=>({key:'test',versions:{}})}));
+  let oldEvents=[],eventQuery,removedBills,removedPayments;
+  const old=normalizeSnapshot(snapshot()).bills[0];
+  t.mock.method(SupplierBill,'find',()=>({session:()=>({lean:async()=>[{...old,syncId:'newer',syncSource:'test-source'}]})}));
+  t.mock.method(SupplierPayment,'find',()=>({session:()=>({lean:async()=>[]})}));
+  t.mock.method(SupplierLedger,'find',query=>{eventQuery=query;return{session:()=>({lean:async()=>oldEvents})}});
+  for(const Model of [SupplierBill,SupplierPayment,SupplierLedger])t.mock.method(Model,'bulkWrite',async()=>({}));
+  t.mock.method(SupplierBill,'updateMany',async filter=>{removedBills=filter;return{}});
+  t.mock.method(SupplierPayment,'updateMany',async filter=>{removedPayments=filter;return{}});
+  const s=snapshot();s.events=[];s.payments=[];
+  await applySnapshot({pharmacyId:'test',branchId:'main'},s);
+  assert.deepEqual(removedBills.syncId.$nin,['a','b']);assert.equal(removedBills.syncSource,'test-source');assert.deepEqual(removedPayments.syncId.$nin,[]);
+  assert.ok(eventQuery.$or[0].billSyncId.$in.includes('newer'));
+  oldEvents=[{syncId:'protected-return',kind:'RETURN',billSyncId:'newer',eventDate:'2026-10-07',amount:100,remarks:'Return'}];
+  await assert.rejects(()=>applySnapshot({pharmacyId:'test',branchId:'main'},s),/cannot remove or change/);
+});

@@ -1,11 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
-contextBridge.exposeInMainWorld('supplierAPI', {
-  list: (filters) => ipcRenderer.invoke('supplier:list', filters),
-  saveBill: (data) => ipcRenderer.invoke('supplier:save-bill', data),
-  deleteBill: (id) => ipcRenderer.invoke('supplier:delete-bill', id),
-  addPayment: (data) => ipcRenderer.invoke('supplier:add-payment', data),
-  deletePayment: (id) => ipcRenderer.invoke('supplier:delete-payment', id),
-  suppliers: () => ipcRenderer.invoke('supplier:names'),
-  recordEvent: (data) => ipcRenderer.invoke('supplier:record-event', data),
-  syncStatus: () => ipcRenderer.invoke('supplier:sync-status'),
-});
+async function invoke(channel, input, auth) {
+  const result=await ipcRenderer.invoke(`supplier:${channel}`,input,auth);
+  if (!result.ok) throw new Error(result.error); return result.value;
+}
+const methods={list:'list',saveBill:'save-bill',deleteBill:'delete-bill',addPayment:'add-payment',deletePayment:'delete-payment',suppliers:'names',recordEvent:'record-event',syncStatus:'sync-status',duplicates:'duplicates',exportData:'export-data',backupList:'backup-list',createBackup:'backup-create',downloadBackup:'backup-download',restoreBackup:'backup-restore',auditList:'audit-list'};
+contextBridge.exposeInMainWorld('supplierAPI',Object.fromEntries(Object.entries(methods).map(([name,channel])=>[name,(input,auth)=>invoke(channel,input,auth)])));

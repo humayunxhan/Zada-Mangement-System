@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
+import { accountChange } from '../audit.js';
 import { getPool } from '../db.js';
 import { authenticateToken, requireAdmin, generateToken } from '../middleware/auth.js';
 
@@ -79,7 +80,10 @@ router.post('/change-password', authenticateToken, async (req, res) => {
     if (!match) return res.status(400).json({ error: 'Current password is incorrect' });
 
     const newHash = await bcrypt.hash(new_password, 10);
-    await pool.query('UPDATE users SET password_hash = ? WHERE id = ?', [newHash, req.user.id]);
+    await accountChange(async conn => {
+      await conn.query('UPDATE users SET password_hash = ? WHERE id = ?', [newHash, req.user.id]);
+      return { result: null, change: { action: 'PASSWORD_CHANGE', recordId: req.user.id, after: { passwordChanged: true } } };
+    }, req.user.username);
     res.json({ success: true, message: 'Password updated successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -119,10 +123,13 @@ router.post('/users', authenticateToken, requireAdmin, async (req, res) => {
     const hash = await bcrypt.hash(password, 10);
     const userRole = role === 'admin' ? 'admin' : 'operator';
 
-    const [result] = await pool.query(
+    const result = await accountChange(async conn => {
+    const [created] = await conn.query(
       'INSERT INTO users (username, password_hash, full_name, role, status) VALUES (?, ?, ?, ?, ?)',
       [username.trim(), hash, full_name.trim(), userRole, 'active']
     );
+    return { result: created, change: { action: 'ACCOUNT_CREATE', recordId: created.insertId, after: { username: username.trim(), full_name: full_name.trim(), role: userRole, status: 'active' } } };
+    }, req.user.username);
 
     res.status(201).json({
       success: true,
@@ -152,7 +159,12 @@ router.patch('/users/:id/status', authenticateToken, requireAdmin, async (req, r
     }
 
     const pool = getPool();
-    await pool.query('UPDATE users SET status = ? WHERE id = ?', [status, userId]);
+    await accountChange(async conn => {
+      const [before] = await conn.query('SELECT id,username,full_name,role,status FROM users WHERE id=? FOR UPDATE',[userId]);
+      if (!before.length) { const e=new Error('Account not found.'); e.status=404; throw e; }
+      await conn.query('UPDATE users SET status = ? WHERE id = ?', [status, userId]);
+      return { result: null, change: { action: 'ACCOUNT_STATUS', recordId: userId, before: before[0], after: { ...before[0], status } } };
+    }, req.user.username);
     res.json({ success: true, status });
   } catch (err) {
     res.status(500).json({ error: err.message });
