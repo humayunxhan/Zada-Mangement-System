@@ -78,3 +78,22 @@ Deployed release: `20261004T174630Z` (previous SPMS docroot backed up).
 - No live financial writes were made for this mobile release verification.
 - Physical iOS/Android installation and virtual-keyboard behavior were not tested.
   The user requested finishing through code/scripts without browser UI.
+
+## Collaborator integration — 7 October 2026
+
+- Preserved the live uncommitted release in commit `0c32855`, then merged
+  collaborator commits through `480b098` on `codex/spms-php-integration`.
+- Deployed code commit `294f598`; release/backup ID `20261007T105510Z`.
+- Private backups: `spms-private/backups/20261007T105510Z.tar.gz` (files) and
+  `spms-private/backups/20261007T105510Z.sql` (dedicated database).
+- API maintenance gate was verified as HTTP 503 before migration. The additive
+  migration ran twice and confirmed identical existing users/bills/payments.
+- Returns, refunds and same-supplier credit adjustments now have PHP persistence,
+  transaction locking, retry identities and historical-edit protection.
+- PHP external CEO synchronization is explicitly disabled for this private portal;
+  the collaborator's Node/Electron synchronization source remains intact.
+- Production build, mobile/PWA workflows, 14 server tests, Electron persistence,
+  SQLite and isolated MySQL financial tests passed. Live read-only checks passed
+  for login, ledger balances, protected includes, assets and both existing sites.
+- No browser UI was used; no live financial test records were created. Physical
+  phone rendering/install behavior remains unverified.
