@@ -49,3 +49,12 @@ test('dated reports include returns of older bills and support an unfiltered act
   assert.equal(report.adjustedInPeriod, 3000); assert.equal(report.events[0].supplierName, 'A');
   await activityReport(scope); assert.deepEqual(filter, scope);
 });
+
+
+test('bill-to-bill settlements sync and contribute to CEO payable totals', () => {
+  const input = snapshot(); input.bills.forEach(b => { b.category = 'BILL_TO_BILL'; });
+  const s = normalizeSnapshot(input);
+  const totals = summarize(decorateBills(s.bills, s.payments, s.events));
+  assert.equal(totals.actualPayable, 7000); assert.equal(totals.outstandingBalance, 4000);
+  assert.equal(totals.totalPaid, 4000); assert.equal(totals.pendingCredit, 0);
+});

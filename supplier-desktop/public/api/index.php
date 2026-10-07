@@ -295,7 +295,7 @@ if ($path === 'bills' && $method === 'GET') {
         }
         $paid = round($paid, 2);
 
-        $excluded = $b['category'] !== 'PAYABLE';
+        $excluded = !in_array($b['category'], ['PAYABLE', 'BILL_TO_BILL'], true);
         $actual = (float)($b['actual_amount'] ?? 0);
         $remaining = $excluded ? 0.0 : round(max(0.0, $actual - $paid), 2);
 

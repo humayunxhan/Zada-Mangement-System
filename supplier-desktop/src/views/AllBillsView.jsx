@@ -280,7 +280,7 @@ export default function AllBillsView({ visible, search, setSearch, from, setFrom
                             Rs {money(b.remaining_balance)}
                           </span>
                         </Td>
-                        <Td align="center"><StatusBadge status={b.payment_status} />
+                        <Td align="center"><StatusBadge status={b.payment_status} />{b.category === 'BILL_TO_BILL' && <small style={S.metaSub}>Bill to bill</small>}
                           {b.returned_amount > 0 && <small style={S.metaSub}>{b.return_status === 'RETURNED' ? 'Returned' : 'Partial return'} · {b.last_return_date}<br />Rs {money(b.returned_amount)}</small>}
                           {b.pending_credit > 0 && <small style={{...S.metaSub,color:'#a78bfa'}}>Credit pending Rs {money(b.pending_credit)}</small>}
                           {b.credit_applied > 0 && <small style={S.metaSub}>Credit applied Rs {money(b.credit_applied)}</small>}
@@ -309,7 +309,7 @@ export default function AllBillsView({ visible, search, setSearch, from, setFrom
                           <div style={S.actions}>
                             {!b.ledgerEvents?.length && <ActionBtn onClick={() => onEdit(b)}>Edit</ActionBtn>}
                             {b.remaining_balance > 0 && <ActionBtn onClick={() => onPay(b)} accent>Pay</ActionBtn>}
-                            {b.category === 'PAYABLE' && Number(b.actual_amount) > Number(b.returned_amount || 0) && <ActionBtn onClick={() => onReturn(b)}>Return</ActionBtn>}
+                            {['PAYABLE', 'BILL_TO_BILL'].includes(b.category) && Number(b.actual_amount) > Number(b.returned_amount || 0) && <ActionBtn onClick={() => onReturn(b)}>Return</ActionBtn>}
                             {!b.ledgerEvents?.length && !b.payments?.length && <ActionBtn onClick={() => onDelete(b)} danger>Delete</ActionBtn>}
                           </div>
                         </Td>

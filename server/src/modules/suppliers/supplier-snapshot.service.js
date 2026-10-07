@@ -29,11 +29,11 @@ export function normalizeSnapshot(input) {
   for (const p of livePayments) if (!live.some(b => b.syncId === p.billSyncId)) fail('Payment references a missing active bill.');
   for (const e of events) {
     const source = live.find(b => b.syncId === e.billSyncId);
-    if (!source || source.category !== 'PAYABLE') fail('Return/settlement references a missing payable bill.');
+    if (!source || !ledger.isPayable(source)) fail('Return/settlement references a missing payable bill.');
     if (e.kind === 'RETURN' && !e.remarks) fail('Return reason is required.');
     if (e.kind === 'ADJUSTMENT') {
       const target = live.find(b => b.syncId === e.targetBillSyncId);
-      if (!target || target.category !== 'PAYABLE' || target.syncId === source.syncId || target.supplierName.trim().toLowerCase() !== source.supplierName.trim().toLowerCase()) fail('Invalid supplier credit target.');
+      if (!target || !ledger.isPayable(target) || target.syncId === source.syncId || target.supplierName.trim().toLowerCase() !== source.supplierName.trim().toLowerCase()) fail('Invalid supplier credit target.');
     }
   }
   const replay = [];

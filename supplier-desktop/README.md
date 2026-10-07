@@ -9,7 +9,7 @@ npm install
 npm run app
 ```
 
-Use **Pay** on a bill to record partial or complete payments. Totals, tax deduction, actual payable, paid amount, remaining balance and payment status are calculated automatically. Bill-to-bill, sale-based and disputed entries can be categorized without creating fake settlement rows.
+Use **Pay** on a bill to record partial or complete payments. Totals, tax deduction, actual payable, paid amount, remaining balance and payment status are calculated automatically. Bill-to-bill bills remain payable until an actual payment is recorded: when the next supplier bill arrives, use **Pay** on the previous bill and enter its payment date, amount and method. Adding the next bill does not automatically create a payment. Existing bill-to-bill bills also show their unpaid balances. Sale-based and disputed entries remain outside the payable balance.
 
 The server must be redeployed with the new `/api/v1/suppliers/*` routes before live sync and CEO reports will return data.
 
