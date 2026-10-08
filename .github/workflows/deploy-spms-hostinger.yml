@@ -32,11 +32,11 @@ jobs:
       - name: Deploy SPMS release
         if: ${{ vars.HOSTINGER_DEPLOY_ENABLED == 'true' }}
         env:
-          HOSTINGER_DEPLOY_KEY: ${{ secrets.HOSTINGER_DEPLOY_KEY }}
+          ZADA_SPMS_HOSTINGER_SSH_KEY: ${{ secrets.ZADA_SPMS_HOSTINGER_SSH_KEY }}
         run: |
           set -euo pipefail
-          test -n "$HOSTINGER_DEPLOY_KEY"
+          test -n "$ZADA_SPMS_HOSTINGER_SSH_KEY"
           install -d -m 700 "$RUNNER_TEMP/spms-ssh"
-          printf '%s\n' "$HOSTINGER_DEPLOY_KEY" > "$RUNNER_TEMP/spms-ssh/key"
+          printf '%s\n' "$ZADA_SPMS_HOSTINGER_SSH_KEY" > "$RUNNER_TEMP/spms-ssh/key"
           chmod 600 "$RUNNER_TEMP/spms-ssh/key"
           bash deploy/hostinger.sh "$GITHUB_SHA" "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" "$RUNNER_TEMP/spms-ssh/key"
