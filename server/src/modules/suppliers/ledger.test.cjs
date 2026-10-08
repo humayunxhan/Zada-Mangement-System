@@ -81,9 +81,27 @@ test('bill-to-bill bills stay unpaid until dated partial or full payments are re
   assert.throws(() => ledger.validatePayment({ ...final, amount: 6001 }, bills, [p], []), /remaining bill balance/);
   [old, next] = ledger.decorate(bills, [p, final], []);
   assert.equal(old.paymentStatus, 'COMPLETE'); assert.equal(old.remainingBalance, 0); assert.equal(next.remainingBalance, 7000);
-  for (const category of ['SALE_BASED', 'DISPUTED']) {
+  for (const category of ['DISPUTED']) {
     const b = { ...bill(), category };
     assert.equal(ledger.decorate([b], [], [])[0].remainingBalance, 0);
     assert.throws(() => ledger.validatePayment(p, [b], [], []), /active payable/);
   }
+});
+
+
+test('sale-based bills support dated partial payments, returns and refunds', () => {
+  const bills = [{ ...bill(), category: 'SALE_BASED' }];
+  const p = payment(4000);
+  assert.doesNotThrow(() => ledger.validatePayment(p, bills, [], []));
+  let [b] = ledger.decorate(bills, [p], []);
+  assert.equal(b.remainingBalance, 6000);
+  assert.equal(b.paymentStatus, 'PARTIAL');
+  assert.throws(() => ledger.validatePayment({ ...p, syncId: 'over', amount: 6001 }, bills, [p], []), /remaining bill balance/);
+  const returned = { syncId: 'sale-return', kind: 'RETURN', billSyncId: bills[0].syncId, eventDate: '2026-10-08', amount: 8000, remarks: 'Unsold stock' };
+  const e = ledger.validateEvent(returned, bills, [p], []);
+  [b] = ledger.decorate(bills, [p], [e]);
+  assert.equal(b.remainingBalance, 0);
+  assert.equal(b.pendingCredit, 2000);
+  const refund = ledger.validateEvent({ syncId: 'sale-refund', kind: 'REFUND', billSyncId: bills[0].syncId, eventDate: '2026-10-08', amount: 2000 }, bills, [p], [e]);
+  assert.equal(ledger.decorate(bills, [p], [e, refund])[0].pendingCredit, 0);
 });

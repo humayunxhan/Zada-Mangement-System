@@ -10,7 +10,7 @@ function positive(value) {
   if (!Number.isFinite(Number(value)) || !Number.isSafeInteger(cents(value)) || cents(value) <= 0) fail('Amount must be greater than zero and within the supported currency range.');
   return money(value);
 }
-const isPayable = bill => ['PAYABLE', 'BILL_TO_BILL'].includes(bill?.category);
+const isPayable = bill => ['PAYABLE', 'BILL_TO_BILL', 'SALE_BASED'].includes(bill?.category);
 function decorate(bills, payments, events = []) {
   return bills.map(b => {
     const linked = payments.filter(p => p.billSyncId === b.syncId);
