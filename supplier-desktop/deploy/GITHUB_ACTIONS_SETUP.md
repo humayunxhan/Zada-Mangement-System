@@ -15,6 +15,11 @@ Repository settings required:
    the matching restricted public key is installed on the hosting account.
 3. Keep the workflow environment named `production`.
 
+The matching server public key is restricted to `deploy/gateway.sh`: it cannot
+open a shell, run a remote command, copy arbitrary files, allocate a terminal or
+use SSH forwarding. The gateway accepts only the expected SPMS bundle files,
+validates the commit/run identifiers and limits the upload size before deployment.
+
 Do not connect the full repository directly to the SPMS public directory. Hostinger
 does not build the Vite application there, and the repository contains source files
 that must stay outside the web root.
