@@ -75,10 +75,17 @@ mv "$public/.htaccess.pending" "$public/.htaccess"
 paused=0
 
 health_page="$release/health-home.html"
-curl -fsS --max-time 20 -o "$health_page" "https://spms.zadapharmacy.com/?deploy=$sha"
-grep -q 'Zada SPMS' "$health_page"
+for attempt in 1 2 3 4 5; do
+  if curl -fsS --max-time 20 -o "$health_page" "https://spms.zadapharmacy.com/?deploy=$sha" && grep -q 'Zada SPMS' "$health_page"; then break; fi
+  (( attempt < 5 )) || { echo 'SPMS homepage health check failed.' >&2; exit 1; }
+  sleep 2
+done
 rm -f "$health_page"
-unauthorized="$(curl -sS -o /dev/null -w '%{http_code}' https://spms.zadapharmacy.com/api/bills)"
-test "$unauthorized" = 401
+for attempt in 1 2 3 4 5; do
+  unauthorized="$(curl -sS -o /dev/null -w '%{http_code}' https://spms.zadapharmacy.com/api/bills)"
+  if [[ "$unauthorized" == 401 ]]; then break; fi
+  (( attempt < 5 )) || { echo "SPMS API health check returned $unauthorized." >&2; exit 1; }
+  sleep 2
+done
 trap - EXIT
 printf 'SPMS release %s deployed; backup %s created and verified.\n' "$sha" "$stamp"
