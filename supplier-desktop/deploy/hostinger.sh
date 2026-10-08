@@ -21,4 +21,4 @@ COPYFILE_DISABLE=1 tar -czf "$work/release.tar.gz" -C dist-php .
 COPYFILE_DISABLE=1 tar -czf "$work/tools.tar.gz" -C deploy apply-returns.php backup-database.php migrations
 printf 'app=spms\nsha=%s\nrun=%s\n' "$sha" "$run" > "$work/metadata.env"
 COPYFILE_DISABLE=1 tar -czf "$work/deployment-bundle.tar.gz" -C "$work" metadata.env release.tar.gz tools.tar.gz
-ssh "${ssh_opts[@]}" "$host" < "$work/deployment-bundle.tar.gz"
+ssh "${ssh_opts[@]}" "$host" '/home/u728298835/domains/zadapharmacy.com/spms-private/deploy-system/gateway.sh' < "$work/deployment-bundle.tar.gz"
