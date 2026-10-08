@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import { getPool } from '../db.js';
 import { authenticateToken } from '../middleware/auth.js';
 
-import ledger from '../../../server/src/modules/suppliers/ledger.cjs';
+import ledger from '../../shared/ledger.cjs';
 import { transaction, active, ensureUnlocked } from '../ledger-store.js';
 
 const router = Router();

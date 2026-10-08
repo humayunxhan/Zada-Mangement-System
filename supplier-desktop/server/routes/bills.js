@@ -4,7 +4,7 @@ import { getPool } from '../db.js';
 import { authenticateToken } from '../middleware/auth.js';
 
 import records from '../../shared/records.cjs';
-import ledger from '../../../server/src/modules/suppliers/ledger.cjs';
+import ledger from '../../shared/ledger.cjs';
 import { transaction, ensureUnlocked } from '../ledger-store.js';
 
 const router = Router();

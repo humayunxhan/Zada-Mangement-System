@@ -30,10 +30,6 @@
       "dist/**/*",
       "electron/**/*",
       "shared/**/*",
-      {
-        "from": "../server/src/modules/suppliers/ledger.cjs",
-        "to": "electron/supplier-ledger.cjs"
-      },
       "build/icon.ico",
       "package.json"
     ],

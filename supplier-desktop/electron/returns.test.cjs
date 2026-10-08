@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs'); const os = require('os'); const path = require('path');
 const db = require('./db.cjs');
 const cleanup = require('./test-cleanup.cjs');
-test('offline return, refund and adjustment persist atomically with the CEO sync snapshot', async () => {
+test('offline return, refund and adjustment persist atomically with the local recovery snapshot', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'zada-returns-test-'));
   try {
     await db.init(dir);
@@ -30,7 +30,7 @@ test('offline return, refund and adjustment persist atomically with the CEO sync
     assert.equal(currentBills[0].credit_applied, 3000);
     const snapshot = JSON.parse(db.syncJob().payload);
     assert.equal(snapshot.events.length, 3); assert.equal(snapshot.payments.length, 1); assert.equal(db.syncStatus().pending, 1);
-    const { normalizeSnapshot } = await import('../../server/src/modules/suppliers/supplier-snapshot.service.js');
+    const { normalizeSnapshot } = require('../shared/snapshot-validation.cjs');
     assert.doesNotThrow(() => normalizeSnapshot(snapshot));
     db.addPayment({ sync_id: 'pb', bill_sync_id: 'b', payment_date: '2026-10-08', amount: 4000 });
     assert.doesNotThrow(() => normalizeSnapshot(JSON.parse(db.syncJob().payload)));
@@ -59,7 +59,7 @@ test('offline bill-to-bill payments persist and sync without automatically settl
     db.addPayment(p); db.addPayment(p); // A retry must not duplicate the payment.
     assert.equal(db.list().find(b => b.sync_id === 'old').remaining_balance, 6000);
     db.addPayment({ ...p, sync_id: 'final', amount: 6000 });
-    const { normalizeSnapshot } = await import('../../server/src/modules/suppliers/supplier-snapshot.service.js');
+    const { normalizeSnapshot } = require('../shared/snapshot-validation.cjs');
     assert.doesNotThrow(() => normalizeSnapshot(JSON.parse(db.syncJob().payload)));
     await db.init(dir);
     const old = db.list().find(b => b.sync_id === 'old');

@@ -1,4 +1,4 @@
-const ledger=require('../../server/src/modules/suppliers/ledger.cjs');
+const ledger=require('../shared/ledger.cjs');
 const scenarios=[];
 for(const category of ['PAYABLE','BILL_TO_BILL'])for(const paid of [0,30,100])for(const returned of [0,20,70,100]) {
  const bills=[{id:1,sync_id:'a',posting_date:'2026-09-01',bill_date:'2026-09-01',supplier_name:'Alpha',supplier_bill_no:'1',voucher_no:'10',total_bill_amount:100,tax_percent:0,tax_amount:0,actual_amount:100,category,deleted_at:null},{id:2,sync_id:'b',posting_date:'2026-10-01',bill_date:'2026-10-01',supplier_name:'Alpha',supplier_bill_no:'2',voucher_no:'20',total_bill_amount:100,tax_percent:0,tax_amount:0,actual_amount:100,category,deleted_at:null}];

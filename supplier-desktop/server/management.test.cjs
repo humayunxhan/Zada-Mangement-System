@@ -1,5 +1,5 @@
 const test=require('node:test'); const assert=require('node:assert/strict');
-test('MySQL financial mutation audit and sync snapshot commit together; audit failure rolls back',async t=>{
+test('MySQL financial mutation, audit and recovery snapshot commit together; audit failure rolls back',async t=>{
  const {getPool}=await import('./db.js');const {transaction}=await import('./ledger-store.js');
  let state={bills:[],payments:[],events:[]},saved,version=1,committed=0,rolledBack=0,audits=[],outbox=[],failAudit=false;
  const conn={beginTransaction:async()=>{saved=structuredClone({state,version,audits,outbox});},commit:async()=>{committed++;},rollback:async()=>{({state,version,audits,outbox}=saved);rolledBack++;},release:()=>{},query:async(sql,args=[])=>{

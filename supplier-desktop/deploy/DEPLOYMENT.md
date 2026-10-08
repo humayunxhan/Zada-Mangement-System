@@ -90,7 +90,7 @@ Deployed release: `20261004T174630Z` (previous SPMS docroot backed up).
   migration ran twice and confirmed identical existing users/bills/payments.
 - Returns, refunds and same-supplier credit adjustments now have PHP persistence,
   transaction locking, retry identities and historical-edit protection.
-- PHP external CEO synchronization is explicitly disabled for this private portal;
+- the private portal does not send financial data to an external synchronization service;
   the collaborator's Node/Electron synchronization source remains intact.
 - Production build, mobile/PWA workflows, 14 server tests, Electron persistence,
   SQLite and isolated MySQL financial tests passed. Live read-only checks passed

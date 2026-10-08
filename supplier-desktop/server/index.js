@@ -10,7 +10,6 @@ import paymentsRoutes from './routes/payments.js';
 import returnsRoutes from './routes/returns.js';
 import managementRoutes, { automaticBackup } from './management.js';
 import { transaction } from './ledger-store.js';
-import { flushSupplierSync } from './supplier-sync.js';
 
 dotenv.config();
 
@@ -64,8 +63,6 @@ async function start() {
     await transaction(async () => null); // Bootstrap old records through the same durable sync path.
     await automaticBackup();
     setInterval(() => void automaticBackup(), 60 * 60 * 1000).unref();
-    void flushSupplierSync();
-    setInterval(() => void flushSupplierSync(), 15000).unref();
     console.log('[Server] Database initialized successfully.');
 
     app.listen(PORT, '0.0.0.0', () => {

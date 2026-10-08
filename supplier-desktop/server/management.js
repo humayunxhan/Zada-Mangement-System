@@ -7,7 +7,6 @@ import { insertAudit } from './audit.js';
 import { authenticateToken, requireAdmin } from './middleware/auth.js';
 import records from '../shared/records.cjs';
 import backupFiles from '../shared/backup-files.cjs';
-import { flushSupplierSync } from './supplier-sync.js';
 const router = Router();
 let files, backupError = null, backupRunning = false;
 const store = () => files ||= backupFiles.store(process.env.BACKUP_DIR || path.join(path.dirname(fileURLToPath(import.meta.url)),'backups'));
@@ -72,7 +71,7 @@ router.post('/restore',run(async req => {
     await insertAudit(conn,{actor:req.user.username,action:'RESTORE',entity:'backup',details:{backupDate:input.createdAt,safetyBackup:safety.id}});
     return { bills:data.bills.length,payments:data.payments.length,events:data.events.length,safetyBackup:safety.id };
   },req.user.username,{reason:'BACKUP_RESTORE'});
-  void flushSupplierSync(); return result;
+  return result;
 }));
 router.get('/audit',run(req => auditList(req.query)));
 export default router;

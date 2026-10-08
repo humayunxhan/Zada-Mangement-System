@@ -1,5 +1,5 @@
 <?php
-// PHP counterpart of server/src/modules/suppliers/ledger.cjs.
+// PHP counterpart of shared/ledger.cjs.
 // All financial calculations use integer cents; historical rows remain intact.
 function ledger_payable($bill) { return in_array($bill['category'] ?? '', ['PAYABLE','BILL_TO_BILL','SALE_BASED'], true); }
 class LedgerError extends RuntimeException {}

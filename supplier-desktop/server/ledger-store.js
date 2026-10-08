@@ -1,4 +1,4 @@
-import ledger from '../../server/src/modules/suppliers/ledger.cjs';
+import ledger from '../shared/ledger.cjs';
 import crypto from 'crypto';
 import records from '../shared/records.cjs';
 import { insertAudit } from './audit.js';

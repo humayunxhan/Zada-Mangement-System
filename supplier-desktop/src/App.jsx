@@ -346,7 +346,7 @@ export default function App() {
       case 'returns':
         return <ReturnsView key={returning?.sync_id || 'returns'} initialBill={returning} onChanged={load} online={online} />;
       case 'more':
-        return <section className="account-panel"><span className="section-kicker">YOUR WORKSPACE</span><h2>{currentUser.full_name}</h2><p>@{currentUser.username} · {currentUser.role}</p><InstallApp /><button onClick={()=>navigate('returns')}>Returns & supplier credits →</button>{currentUser.role==='admin' && <button onClick={()=>navigate('records')}>Backups & audit →</button>}{currentUser.role==='admin' && <button onClick={()=>navigate('users')}>Manage users & staff →</button>}<button className="danger" onClick={handleLogout}>Sign out</button><p>Financial records are saved online. {syncStatus?.enabled===false && 'External CEO sync is disabled for this private portal.'}</p></section>;
+        return <section className="account-panel"><span className="section-kicker">YOUR WORKSPACE</span><h2>{currentUser.full_name}</h2><p>@{currentUser.username} · {currentUser.role}</p><InstallApp /><button onClick={()=>navigate('returns')}>Returns & supplier credits →</button>{currentUser.role==='admin' && <button onClick={()=>navigate('records')}>Backups & audit →</button>}{currentUser.role==='admin' && <button onClick={()=>navigate('users')}>Manage users & staff →</button>}<button className="danger" onClick={handleLogout}>Sign out</button><p>Financial records are saved in the private SPMS database.</p></section>;
       case 'records':
         return <RecordsView onChanged={load} online={online} />;
       case 'users':

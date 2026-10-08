@@ -1,4 +1,4 @@
-// Shared accounting rules for Mongo, MySQL and the offline desktop database.
+// Shared accounting rules for MySQL, PHP and the offline desktop database.
 const money = n => Math.round((Number(n) || 0) * 100) / 100;
 const cents = n => Math.round(Number(n) * 100);
 function fail(message) { const e = new Error(message); e.status = 400; throw e; }

@@ -1,12 +1,12 @@
-# Zada CEO Mobile
+# Zada CEO Mobile (archived prototype)
 
-A deliberately focused, read-only React Native/Expo app for live summary and past closing summaries. Login is skipped in this version.
+This source is retained as a design prototype. Its retired Node sync backend is no longer part of this repository, so it is not connected to production SPMS data.
 
-## Run
+## Local interface preview
 
 1. Copy `.env.example` to `.env`.
-2. Set `EXPO_PUBLIC_API_URL` to the server computer's LAN address, for example `http://192.168.1.20:4100` (not `localhost` when using a physical phone).
+2. Set `EXPO_PUBLIC_API_URL` only if you provide a compatible private API.
 3. Run `npm install` and `npm start` in this folder.
 4. Open it with Expo Go or an emulator.
 
-The dashboard reconnects automatically and receives Socket.IO updates whenever the counter app creates or changes an entry. Pull down on either list to refresh manually.
+Do not point this unauthenticated prototype at production data.
