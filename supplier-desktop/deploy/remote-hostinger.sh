@@ -74,7 +74,10 @@ chmod 644 "$public/.htaccess.pending"
 mv "$public/.htaccess.pending" "$public/.htaccess"
 paused=0
 
-curl -fsS --max-time 20 "https://spms.zadapharmacy.com/?deploy=$sha" | grep -q 'Zada SPMS'
+health_page="$release/health-home.html"
+curl -fsS --max-time 20 -o "$health_page" "https://spms.zadapharmacy.com/?deploy=$sha"
+grep -q 'Zada SPMS' "$health_page"
+rm -f "$health_page"
 unauthorized="$(curl -sS -o /dev/null -w '%{http_code}' https://spms.zadapharmacy.com/api/bills)"
 test "$unauthorized" = 401
 trap - EXIT
