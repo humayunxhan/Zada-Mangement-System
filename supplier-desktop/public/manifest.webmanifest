@@ -1,0 +1,17 @@
+{
+  "id": "/",
+  "name": "Zada SPMS — Supplier Desk",
+  "short_name": "Zada SPMS",
+  "description": "Private supplier bills, payments and balances for Zada Pharmacy.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#07101f",
+  "theme_color": "#07101f",
+  "lang": "en",
+  "icons": [
+    {"src": "/icons/spms-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "/icons/spms-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "/icons/spms-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}

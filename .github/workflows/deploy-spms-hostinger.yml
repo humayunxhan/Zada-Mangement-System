@@ -1,0 +1,42 @@
+name: Build and deploy SPMS
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spms-production
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    defaults:
+      run:
+        working-directory: supplier-desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: supplier-desktop/package-lock.json
+      - run: npm ci
+      - run: npm run test:mobile
+      - run: npm run build:php
+      - name: Deploy SPMS release
+        if: ${{ vars.HOSTINGER_DEPLOY_ENABLED == 'true' }}
+        env:
+          HOSTINGER_DEPLOY_KEY: ${{ secrets.HOSTINGER_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$HOSTINGER_DEPLOY_KEY"
+          install -d -m 700 "$RUNNER_TEMP/spms-ssh"
+          printf '%s\n' "$HOSTINGER_DEPLOY_KEY" > "$RUNNER_TEMP/spms-ssh/key"
+          chmod 600 "$RUNNER_TEMP/spms-ssh/key"
+          bash deploy/hostinger.sh "$GITHUB_SHA" "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" "$RUNNER_TEMP/spms-ssh/key"

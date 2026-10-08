@@ -2,6 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Icon from './components/Icon';
 import Modal from './components/Modal';
 import Feedback from './components/Feedback';
+import InstallApp from './components/InstallApp';
+import DeveloperCredits from './components/DeveloperCredits';
+import AppIcon from './components/AppIcon';
 import Sidebar from './components/Sidebar';
 import SummaryView from './views/SummaryView';
 import AddBillView from './views/AddBillView';
@@ -42,7 +45,9 @@ export default function App() {
   const [returning, setReturning] = useState(null);
   const [syncStatus, setSyncStatus] = useState(null);
   const [items, setItems] = useState([]);
-  const [form, setForm] = useState(blank());
+  const initialForm = useRef(blank());
+  const [form, setForm] = useState(initialForm.current);
+  const baseline = useRef(JSON.stringify(initialForm.current));
   const [paying, setPaying] = useState(null);
   const [confirming, setConfirming] = useState(null);
   const [payment, setPayment] = useState({
@@ -69,6 +74,41 @@ export default function App() {
   const [duplicateWarning, setDuplicateWarning] = useState(null);
   const requestSequence = useRef(0);
 
+  const [online, setOnline] = useState(navigator.onLine);
+  const mutationBusy = useRef(false);
+  const billIdentity = useRef(null);
+  const dirty = JSON.stringify(form) !== baseline.current;
+  function resetForm() { const next=blank(); baseline.current=JSON.stringify(next); setForm(next); billIdentity.current=null; }
+  function clearSession() {
+    requestSequence.current++; setCurrentUser(null); setDuplicateWarning(null); setItems([]); setPaying(null); setReturning(null); setConfirming(null);
+    resetForm(); setSearch(''); setNotice(''); setFormError(''); setPaymentError(''); setErrorMsg(''); setActiveTab('summary');
+  }
+  function navigate(tab) {
+    if (mutationBusy.current) return;
+    if (activeTab === 'bills' && tab !== 'bills' && dirty && !confirm('Discard unsaved bill changes?')) return;
+    if (!window.dispatchEvent(new CustomEvent('spms:navigate', { cancelable:true }))) return;
+    if (activeTab === 'bills' && tab !== 'bills') resetForm();
+    setReturning(null);setFormError('');setNotice('');setActiveTab(tab);window.scrollTo(0,0);
+  }
+  function closePayment() {
+    if (mutationBusy.current || ((payment.amount || payment.reference_no || payment.remarks) && !confirm('Discard this payment form?'))) return;
+    setPaying(null);setPaymentError('');
+  }
+  function openPayment(bill) {
+    setPayment({ sync_id:newSyncId(), payment_date:today(), amount:'', payment_mode:'CHEQUE', reference_no:'', remarks:'' });
+    setPaymentError('');setPaying(bill);
+  }
+  useEffect(() => {
+    const update=()=>setOnline(navigator.onLine);
+    window.addEventListener('online',update);window.addEventListener('offline',update);
+    return ()=>{window.removeEventListener('online',update);window.removeEventListener('offline',update);};
+  },[]);
+  useEffect(() => {
+    if (!dirty && !paying) return;
+    const guard=e=>{e.preventDefault();e.returnValue='';};
+    window.addEventListener('beforeunload',guard);return()=>window.removeEventListener('beforeunload',guard);
+  },[dirty,paying]);
+
   // Check current user session on load
   useEffect(() => {
     async function checkAuth() {
@@ -91,7 +131,7 @@ export default function App() {
     checkAuth();
 
     function onAuthExpired() {
-      setCurrentUser(null);
+      clearSession();
     }
     window.addEventListener('auth:expired', onAuthExpired);
     return () => window.removeEventListener('auth:expired', onAuthExpired);
@@ -114,7 +154,7 @@ export default function App() {
     if (currentUser) {
       load();
     }
-  }, [from, to, currentUser]);
+  }, [from, to, currentUser, online]);
 
   const tabs = useMemo(() => {
     const list = [
@@ -122,6 +162,8 @@ export default function App() {
       { id: 'bills', label: 'Add a bill', icon: 'plus' },
       { id: 'all', label: 'All bills', icon: 'bill' },
       { id: 'returns', label: 'Returns & credits', icon: 'returns' },
+      { id: 'payments', label: 'Payments', icon: 'bill' },
+      { id: 'more', label: 'Account & app', icon: 'users' },
     ];
     if (currentUser?.role === 'admin') {
       list.push({ id: 'users', label: 'Team access', icon: 'users' });
@@ -132,8 +174,8 @@ export default function App() {
 
   useEffect(() => {
     if (!currentUser) return;
-    const check = () => api.returns.syncStatus().then(setSyncStatus).catch(() => {});
-    void check(); const timer = setInterval(check, 15000);
+    const check = () => api.returns.syncStatus().then(status=>{setSyncStatus(status);if(status.enabled===false)clearInterval(timer);}).catch(() => {});
+    const timer = setInterval(check, 15000); void check();
     return () => clearInterval(timer);
   }, [currentUser, items]);
 
@@ -167,11 +209,13 @@ export default function App() {
 
   async function save(e, acknowledged = []) {
     e?.preventDefault();
-    if (savingBill) return;
+    if (mutationBusy.current || !online) return;
+    mutationBusy.current=true;
     setSavingBill(true); setFormError(''); setNotice('');
     let billSaved = false;
     try {
-      const payload = { ...form, sync_id: form.sync_id || newSyncId(), duplicate_acknowledged: acknowledged };
+      billIdentity.current ||= form.sync_id || newSyncId();
+      const payload = { ...form, sync_id: billIdentity.current, duplicate_acknowledged: acknowledged };
       const matches = await api.records.duplicates(payload);
       if (matches.some(b => !acknowledged.includes(b.sync_id))) { setDuplicateWarning(matches); return; }
       setDuplicateWarning(null);
@@ -195,17 +239,18 @@ export default function App() {
       }
 
       setNotice(form.record_payment && Number(form.payment_amount) > 0 ? 'Bill and payment saved.' : 'Supplier bill saved.');
-      setForm(blank());
+      resetForm();
       setActiveTab('all');
       await load();
     } catch (err) {
       setFormError(billSaved ? `Bill saved, but the payment could not be recorded. ${err.message} Your entries are kept; retry to finish the payment.` : err.message);
-    } finally { setSavingBill(false); }
+    } finally { mutationBusy.current=false; setSavingBill(false); }
   }
 
   async function pay(e) {
     e.preventDefault();
-    if (savingPayment) return;
+    if (mutationBusy.current || !online) return;
+    mutationBusy.current=true;
     setSavingPayment(true); setPaymentError('');
     try {
       const paymentPayload = { ...payment, bill_sync_id: paying.sync_id };
@@ -217,19 +262,20 @@ export default function App() {
       await load();
     } catch (err) {
       setPaymentError(err.message);
-    } finally { setSavingPayment(false); }
+    } finally { mutationBusy.current=false; setSavingPayment(false); }
   }
 
   function onEditBill(b) {
     setFormError(''); setNotice('');
-    setForm({
+    const next = {
       ...blank(),
       ...b,
       record_payment: false,
       payment_amount: '',
       payment_reference_no: '',
       payment_remarks: '',
-    });
+    };
+    setForm(next);baseline.current=JSON.stringify(next);billIdentity.current=b.sync_id;
     setActiveTab('bills');
     window.scrollTo(0, 0);
   }
@@ -244,9 +290,9 @@ export default function App() {
   }
 
   function handleLogout() {
-    if (confirm('Are you sure you want to sign out?')) {
+    if (!mutationBusy.current && window.dispatchEvent(new CustomEvent('spms:navigate',{cancelable:true})) && confirm(dirty ? 'Sign out and discard unsaved changes?' : 'Are you sure you want to sign out?')) {
       api.auth.logout();
-      setCurrentUser(null);
+      clearSession();
     }
   }
 
@@ -273,15 +319,17 @@ export default function App() {
             setForm={setForm}
             suppliers={suppliers}
             onSave={save}
-            saving={savingBill}
+            saving={savingBill} online={online}
             error={formError}
-            onCancel={() => { setForm(blank()); setFormError(''); }}
+            onCancel={() => { if (!dirty || confirm('Discard unsaved bill changes?')) {resetForm();setFormError('');} }}
           />
         );
+      case 'payments':
       case 'all':
         return (
           <AllBillsView
-            visible={visible}
+            visible={activeTab==='payments' ? visible.filter(b=>b.remaining_balance>0) : visible}
+            title={activeTab==='payments' ? 'Record a payment' : 'Bills & payments'}
             search={search}
             setSearch={setSearch}
             from={from}
@@ -289,20 +337,22 @@ export default function App() {
             to={to}
             setTo={setTo}
             onEdit={onEditBill}
-            onPay={(bill) => { setPaymentError(''); setPaying(bill); }}
+            onPay={openPayment}
             loading={loading}
             onDelete={onDeleteBill}
             onReturn={(b) => { setNotice(''); setReturning(b); setActiveTab('returns'); }}
           />
         );
       case 'returns':
-        return <ReturnsView key={returning?.sync_id || 'returns'} initialBill={returning} onChanged={load} />;
+        return <ReturnsView key={returning?.sync_id || 'returns'} initialBill={returning} onChanged={load} online={online} />;
+      case 'more':
+        return <section className="account-panel"><span className="section-kicker">YOUR WORKSPACE</span><h2>{currentUser.full_name}</h2><p>@{currentUser.username} · {currentUser.role}</p><InstallApp /><button onClick={()=>navigate('returns')}>Returns & supplier credits →</button>{currentUser.role==='admin' && <button onClick={()=>navigate('records')}>Backups & audit →</button>}{currentUser.role==='admin' && <button onClick={()=>navigate('users')}>Manage users & staff →</button>}<button className="danger" onClick={handleLogout}>Sign out</button><p>Financial records are saved online. {syncStatus?.enabled===false && 'External CEO sync is disabled for this private portal.'}</p></section>;
       case 'records':
-        return <RecordsView onChanged={load} />;
+        return <RecordsView onChanged={load} online={online} />;
       case 'users':
         return <UsersView currentUser={currentUser} />;
       default:
-        return <SummaryView totals={totals} items={items} from={from} to={to} setFrom={setFrom} setTo={setTo} onAddBill={() => { setForm(blank()); setFormError(''); setActiveTab('bills'); }} onViewBills={() => setActiveTab('all')} />;
+        return <SummaryView totals={totals} items={items} from={from} to={to} setFrom={setFrom} setTo={setTo} onAddBill={()=>navigate('bills')} onViewBills={()=>navigate('all')} />;
     }
   }
 
@@ -312,48 +362,52 @@ export default function App() {
       <Sidebar
         tabs={tabs}
         activeTab={activeTab}
-        onChange={(tab) => { setReturning(null); setFormError(''); setNotice(''); setActiveTab(tab); }}
+        onChange={navigate}
         currentUser={currentUser}
         onLogout={handleLogout}
       />
 
       <main className="content-shell" id="workspace" tabIndex={-1}>
         <header className="app-header">
-          <div><h1>Supplier reconciliation</h1><p>Zada Pharmacy / {window.supplierAPI ? 'Desktop workspace' : 'Shared workspace'}</p></div>
-          <div className="header-tools"><span className="today-label">{new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Karachi' })}</span>{['summary', 'all'].includes(activeTab) && <button type="button" className="icon-button" aria-label="Refresh bills" onClick={load} disabled={loading}><Icon name="refresh" className={loading ? 'is-loading' : ''} /></button>}</div>
+          <div><small>ZADA PHARMACY</small><h1>{({summary:'Overview',all:'Bills & payments',bills:'Supplier bill',payments:'Payments',returns:'Returns & credits',more:'Your account',users:'Users & staff',records:'Backups & audit'})[activeTab]}</h1><p className="desktop-subtitle">Supplier reconciliation</p></div>
+          <div className="header-tools"><button className="header-add" aria-label="Add bill" onClick={()=>navigate('bills')}><AppIcon name="bills" /><span>Add bill</span></button><span className="today-label">{new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Karachi' })}</span>{['summary', 'all'].includes(activeTab) && <button type="button" className="icon-button" aria-label="Refresh bills" onClick={load} disabled={loading}><Icon name="refresh" className={loading ? 'is-loading' : ''} /></button>}</div>
         </header>
+        {!online && <div className="connection-banner" role="status">You’re offline. Reconnect to refresh records or save changes.</div>}
         {errorMsg && <Feedback>{errorMsg} <button type="button" className="quiet-button" onClick={load} disabled={loading}>Try again</button></Feedback>}
         {notice && <Feedback tone="success" onDismiss={() => setNotice('')}>{notice}</Feedback>}
         {syncStatus?.recoveryRequired && <Feedback>The local database needs recovery. An administrator can restore a saved backup from Backups &amp; audit before entering records.</Feedback>}
         {syncStatus && !syncStatus.recoveryRequired && (syncStatus.pending > 0 || syncStatus.error) && <Feedback tone="success">Changes saved. {syncStatus.pending} update{syncStatus.pending === 1 ? '' : 's'} waiting to reach CEO reports.{syncStatus.error ? ' Check the connection if this persists.' : ''}</Feedback>}
         {loading && !items.length && ['summary', 'all'].includes(activeTab) ? <div className="loading-state" role="status"><span className="loading-spinner" />Loading supplier records…</div> : renderTab()}
+        <DeveloperCredits />
       </main>
+      <nav className="mobile-nav" aria-label="Mobile navigation">{[['summary','Home'],['all','Bills'],['payments','Pay'],['more','More']].map(([id,label])=><button key={id} type="button" aria-current={activeTab===id?'page':undefined} onClick={()=>navigate(id)}><AppIcon name={id} /><span>{label}</span></button>)}</nav>
 
       {duplicateWarning && <Modal title="Possible duplicate invoice" busy={savingBill} onClose={() => setDuplicateWarning(null)}><p>This supplier already has the same invoice number. Review the existing entries before saving another bill.</p><div className="duplicate-matches">{duplicateWarning.map(b => <div key={b.sync_id}><strong>{b.supplier_name} / {b.supplier_bill_no}</strong><small>Posted {b.posting_date} · Rs {money(b.total_bill_amount)} · Voucher {b.voucher_no || '—'}</small></div>)}</div>{formError && <Feedback>{formError}</Feedback>}<div className="dialog-actions"><button disabled={savingBill} onClick={() => setDuplicateWarning(null)}>Go back</button><button className="primary" disabled={savingBill} onClick={() => save(null,duplicateWarning.map(b => b.sync_id))}>{savingBill?'Saving…':'Save anyway'}</button></div></Modal>}
-      {paying && <Modal title="Record payment" onClose={() => setPaying(null)} busy={savingPayment}>
-        <form onSubmit={pay}>
+      {paying && <Modal title="Record payment" onClose={closePayment} busy={savingPayment}>
+        <form className="payment-modal" onSubmit={pay}>
           <p className="dialog-description">{paying.supplier_name} / Bill {paying.supplier_bill_no || paying.voucher_no || '—'}</p>
           <div className="dialog-balance"><span>Remaining payable</span><strong>Rs {money(paying.remaining_balance)}</strong></div>
-          <fieldset disabled={savingPayment} className="dialog-fields">
-            <div className="field-grid"><label>Payment date<input autoFocus type="date" required value={payment.payment_date} onChange={e => setPayment(p => ({ ...p, payment_date: e.target.value }))} /></label><label>Amount (Rs)<input type="number" min="0.01" step="0.01" max={paying.remaining_balance} required value={payment.amount} onChange={e => setPayment(p => ({ ...p, amount: e.target.value }))} /></label></div>
+          <fieldset disabled={savingPayment || !online} className="dialog-fields">
+            <div className="field-grid"><label>Payment date<input autoFocus type="date" required value={payment.payment_date} onChange={e => setPayment(p => ({ ...p, payment_date: e.target.value }))} /></label><label>Amount (Rs)<input type="number" inputMode="decimal" min="0.01" step="0.01" max={paying.remaining_balance} required value={payment.amount} onChange={e => setPayment(p => ({ ...p, amount: e.target.value }))} /></label></div>
             <label>Payment method<select value={payment.payment_mode} onChange={e => setPayment(p => ({ ...p, payment_mode: e.target.value }))}>{[['CHEQUE','Cheque'],['ONLINE_TRANSFER','Bank transfer'],['COUNTER_CASH','Counter cash'],['CASH_FROM_AFTAB','Cash from Aftab'],['OTHER','Other']].map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label>
             <label>Reference or cheque number<input maxLength={100} value={payment.reference_no} onChange={e => setPayment(p => ({ ...p, reference_no: e.target.value }))} /></label>
             <label>Remarks<textarea value={payment.remarks} onChange={e => setPayment(p => ({ ...p, remarks: e.target.value }))} /></label>
           </fieldset>
           {paymentError && <Feedback>{paymentError}</Feedback>}
-          <div className="dialog-actions"><button type="button" onClick={() => setPaying(null)} disabled={savingPayment}>Cancel</button><button className="primary" disabled={savingPayment}>{savingPayment ? 'Saving payment…' : 'Save payment'}</button></div>
+          <div className="dialog-actions"><button type="button" onClick={closePayment} disabled={savingPayment || !online}>Cancel</button><button className="primary" disabled={savingPayment || !online}>{savingPayment ? 'Saving payment…' : 'Save payment'}</button></div>
         </form>
       </Modal>}
       {confirming && <Modal title="Delete record?" onClose={() => setConfirming(null)} busy={deleting}>
         <p className="dialog-description">Delete {confirming.label}? The balance and payment history will be recalculated.</p>
         {deleteError && <Feedback>{deleteError}</Feedback>}
-        <div className="dialog-actions"><button onClick={() => setConfirming(null)} disabled={deleting}>Keep record</button><button className="danger" disabled={deleting} onClick={async () => {
-          if (deleting) return;
+        <div className="dialog-actions"><button onClick={() => setConfirming(null)} disabled={deleting}>Keep record</button><button className="danger" disabled={deleting || !online} onClick={async () => {
+          if (mutationBusy.current || !online) return;
+          mutationBusy.current=true;
           setDeleting(true); setDeleteError('');
           try {
             if (confirming.kind === 'bill') await api.bills.delete(confirming.id); else await api.payments.delete(confirming.id);
             setConfirming(null); setNotice('Record deleted.'); await load();
-          } catch (e) { setDeleteError(e.message); } finally { setDeleting(false); }
+          } catch (e) { setDeleteError(e.message); } finally { mutationBusy.current=false; setDeleting(false); }
         }}>{deleting ? 'Deleting…' : 'Delete record'}</button></div>
       </Modal>}
     </div>

@@ -3,11 +3,21 @@
 // Zada Pharmacy SPMS - Unified REST API Router (PHP + Hostinger MySQL)
 // ====================================================================
 
+ini_set('display_errors', '0');
+header('X-Robots-Tag: noindex, nofollow, noarchive, nosnippet');
+header('Cache-Control: private, no-store, max-age=0');
+set_exception_handler(function ($error) {
+    error_log('SPMS request failed: ' . get_class($error));
+    http_response_code(503);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['error' => 'Service temporarily unavailable. Please contact the administrator.']);
+});
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/finance.php';
 
 // Set JSON response headers and CORS
 header('Content-Type: application/json; charset=utf-8');
-header('Access-Control-Allow-Origin: *');
+// Same-origin deployment; no cross-origin API access is advertised.
 header('Access-Control-Allow-Methods: GET, POST, PUT, PATCH, DELETE, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
 
@@ -34,7 +44,7 @@ function get_json_body() {
 
 // Helper to get bearer token user
 function get_auth_user() {
-    global $cfg;
+    global $cfg, $pdo;
     $headers = getallheaders();
     $auth = '';
     foreach ($headers as $k => $v) {
@@ -56,7 +66,14 @@ function get_auth_user() {
     if (!$user) {
         send_json(['error' => 'Invalid or expired session. Please log in again.'], 401);
     }
-    return $user;
+    $stmt = $pdo->prepare('SELECT id, username, full_name, role, status, password_hash FROM users WHERE id = ?');
+    $stmt->execute([$user['id'] ?? 0]);
+    $current = $stmt->fetch();
+    if (!$current || $current['status'] !== 'active' || !hash_equals(hash('sha256', $current['password_hash']), $user['credential_version'] ?? '')) {
+        send_json(['error' => 'Session expired. Please log in again.'], 401);
+    }
+    unset($current['password_hash']);
+    return $current;
 }
 
 function require_admin($user) {
@@ -93,8 +110,39 @@ if ($path === 'health') {
 // AUTHENTICATION ROUTES
 // ====================================================================
 
+// Bound password attempts per remote address; state stays outside the public root.
+function limit_login_attempts() {
+    global $cfg;
+    $dir = $cfg['private_dir'] . '/login-attempts';
+    if (!is_dir($dir) && !mkdir($dir, 0700, true) && !is_dir($dir)) {
+        throw new RuntimeException('Login limiter unavailable');
+    }
+    $key = hash_hmac('sha256', $_SERVER['REMOTE_ADDR'] ?? 'unknown', $cfg['jwt_secret']);
+    $file = fopen($dir . '/' . $key, 'c+');
+    if (!$file || !flock($file, LOCK_EX)) throw new RuntimeException('Login limiter unavailable');
+    $entry = json_decode(stream_get_contents($file), true);
+    $now = time();
+    if (!is_array($entry) || ($entry['until'] ?? 0) <= $now) {
+        $entry = ['until' => $now + 900, 'count' => 0];
+    }
+    if ($entry['count'] >= 10) {
+        flock($file, LOCK_UN);
+        fclose($file);
+        header('Retry-After: ' . max(1, $entry['until'] - $now));
+        send_json(['error' => 'Too many login attempts. Please try again later.'], 429);
+    }
+    $entry['count']++;
+    rewind($file);
+    ftruncate($file, 0);
+    fwrite($file, json_encode($entry));
+    fflush($file);
+    flock($file, LOCK_UN);
+    fclose($file);
+}
+
 // POST /api/auth/login
 if ($path === 'auth/login' && $method === 'POST') {
+    limit_login_attempts();
     $body = get_json_body();
     $username = trim($body['username'] ?? '');
     $password = $body['password'] ?? '';
@@ -121,8 +169,10 @@ if ($path === 'auth/login' && $method === 'POST') {
         'full_name' => $user['full_name'],
         'role' => $user['role'],
     ];
+    $claims = $payload;
+    $claims['credential_version'] = hash('sha256', $user['password_hash']);
 
-    $token = jwt_encode($payload, $cfg['jwt_secret']);
+    $token = jwt_encode($claims, $cfg['jwt_secret'], 28800);
 
     send_json([
         'token' => $token,
@@ -150,8 +200,8 @@ if ($path === 'auth/change-password' && $method === 'POST') {
     if (!$curr || !$next) {
         send_json(['error' => 'Current and new password are required'], 400);
     }
-    if (strlen($next) < 6) {
-        send_json(['error' => 'New password must be at least 6 characters'], 400);
+    if (strlen($next) < 12) {
+        send_json(['error' => 'New password must be at least 12 characters'], 400);
     }
 
     $stmt = $pdo->prepare('SELECT password_hash FROM users WHERE id = ?');
@@ -164,7 +214,10 @@ if ($path === 'auth/change-password' && $method === 'POST') {
 
     $newHash = password_hash($next, PASSWORD_BCRYPT);
     $up = $pdo->prepare('UPDATE users SET password_hash = ? WHERE id = ?');
-    $up->execute([$newHash, $authUser['id']]);
+    finance_mutate($pdo,function()use($pdo,$up,$newHash,$authUser){
+        $up->execute([$newHash,$authUser['id']]);
+        records_audit($pdo,$authUser['username'],'PASSWORD_CHANGE','account',(string)$authUser['id']);
+    });
 
     send_json(['success' => true, 'message' => 'Password updated successfully']);
 }
@@ -192,8 +245,8 @@ if ($path === 'auth/users' && $method === 'POST') {
     if (!$username || !$full_name || !$password) {
         send_json(['error' => 'Username, full name, and password are required'], 400);
     }
-    if (strlen($password) < 6) {
-        send_json(['error' => 'Password must be at least 6 characters'], 400);
+    if (strlen($password) < 12) {
+        send_json(['error' => 'Password must be at least 12 characters'], 400);
     }
 
     $check = $pdo->prepare('SELECT id FROM users WHERE username = ?');
@@ -204,12 +257,16 @@ if ($path === 'auth/users' && $method === 'POST') {
 
     $hash = password_hash($password, PASSWORD_BCRYPT);
     $ins = $pdo->prepare('INSERT INTO users (username, password_hash, full_name, role, status) VALUES (?, ?, ?, ?, "active")');
-    $ins->execute([$username, $hash, $full_name, $role]);
+    $newId=finance_mutate($pdo,function()use($pdo,$ins,$username,$hash,$full_name,$role,$authUser){
+        $ins->execute([$username,$hash,$full_name,$role]);$id=(int)$pdo->lastInsertId();
+        records_audit($pdo,$authUser['username'],'CREATE','account',(string)$id,null,['username'=>$username,'full_name'=>$full_name,'role'=>$role,'status'=>'active']);
+        return $id;
+    });
 
     send_json([
         'success' => true,
         'user' => [
-            'id' => (int)$pdo->lastInsertId(),
+            'id' => $newId,
             'username' => $username,
             'full_name' => $full_name,
             'role' => $role,
@@ -232,253 +289,26 @@ if (preg_match('#^auth/users/(\d+)/status$#', $path, $m) && $method === 'PATCH')
     $status = ($body['status'] ?? '') === 'active' ? 'active' : 'inactive';
 
     $up = $pdo->prepare('UPDATE users SET status = ? WHERE id = ?');
-    $up->execute([$status, $targetId]);
+    finance_mutate($pdo,function()use($pdo,$up,$status,$targetId,$authUser){
+        $stmt=$pdo->prepare('SELECT id,username,full_name,role,status FROM users WHERE id=?');$stmt->execute([$targetId]);$before=$stmt->fetch(PDO::FETCH_ASSOC);
+        $up->execute([$status,$targetId]);
+        if($before)records_audit($pdo,$authUser['username'],'STATUS_CHANGE','account',(string)$targetId,$before,array_merge($before,['status'=>$status]));
+    });
 
     send_json(['success' => true, 'status' => $status]);
 }
 
-// ====================================================================
-// BILLS ROUTES
-// ====================================================================
-
-// GET /api/bills/suppliers
-if ($path === 'bills/suppliers' && $method === 'GET') {
-    get_auth_user();
-    $stmt = $pdo->query('SELECT DISTINCT supplier_name FROM bills WHERE deleted_at IS NULL AND supplier_name != "" ORDER BY supplier_name ASC');
-    $rows = $stmt->fetchAll(PDO::FETCH_COLUMN);
-    send_json($rows ?: []);
-}
-
-// GET /api/bills
-if ($path === 'bills' && $method === 'GET') {
-    get_auth_user();
-    $from = $_GET['from'] ?? null;
-    $to = $_GET['to'] ?? null;
-    $search = $_GET['search'] ?? null;
-
-    $sql = 'SELECT * FROM bills WHERE deleted_at IS NULL';
-    $params = [];
-
-    if ($from) {
-        $sql .= ' AND posting_date >= ?';
-        $params[] = $from;
-    }
-    if ($to) {
-        $sql .= ' AND posting_date <= ?';
-        $params[] = $to;
-    }
-    if ($search) {
-        $sql .= ' AND (supplier_name LIKE ? OR supplier_bill_no LIKE ? OR voucher_no LIKE ?)';
-        $s = "%$search%";
-        $params[] = $s;
-        $params[] = $s;
-        $params[] = $s;
-    }
-
-    $sql .= ' ORDER BY posting_date DESC, id DESC';
-    $stmt = $pdo->prepare($sql);
-    $stmt->execute($params);
-    $bills = $stmt->fetchAll();
-
-    // Fetch active payments
-    $pStmt = $pdo->query('SELECT * FROM payments WHERE deleted_at IS NULL ORDER BY payment_date ASC, id ASC');
-    $payments = $pStmt->fetchAll();
-
-    $enriched = array_map(function ($b) use ($payments) {
-        $linked = array_values(array_filter($payments, function ($p) use ($b) {
-            return $p['bill_sync_id'] === $b['sync_id'];
-        }));
-
-        $paid = 0.0;
-        foreach ($linked as $p) {
-            $paid += (float)($p['amount'] ?? 0);
-        }
-        $paid = round($paid, 2);
-
-        $excluded = !in_array($b['category'], ['PAYABLE', 'BILL_TO_BILL'], true);
-        $actual = (float)($b['actual_amount'] ?? 0);
-        $remaining = $excluded ? 0.0 : round(max(0.0, $actual - $paid), 2);
-
-        if ($excluded) {
-            $paymentStatus = $b['category'];
-        } elseif ($paid == 0) {
-            $paymentStatus = 'UNPAID';
-        } elseif ($remaining > 0) {
-            $paymentStatus = 'PARTIAL';
-        } elseif ($paid > $actual) {
-            $paymentStatus = 'OVERPAID';
-        } else {
-            $paymentStatus = 'COMPLETE';
-        }
-
-        return [
-            'id' => (int)$b['id'],
-            'sync_id' => $b['sync_id'],
-            'posting_date' => $b['posting_date'],
-            'bill_date' => $b['bill_date'],
-            'supplier_name' => $b['supplier_name'],
-            'supplier_bill_no' => $b['supplier_bill_no'],
-            'voucher_no' => $b['voucher_no'],
-            'total_bill_amount' => (float)$b['total_bill_amount'],
-            'tax_percent' => (float)$b['tax_percent'],
-            'tax_amount' => (float)$b['tax_amount'],
-            'actual_amount' => $actual,
-            'category' => $b['category'],
-            'remarks' => $b['remarks'],
-            'created_by' => $b['created_by'],
-            'created_at' => $b['created_at'],
-            'payments' => array_map(function ($p) {
-                return [
-                    'id' => (int)$p['id'],
-                    'sync_id' => $p['sync_id'],
-                    'bill_sync_id' => $p['bill_sync_id'],
-                    'payment_date' => $p['payment_date'],
-                    'amount' => (float)$p['amount'],
-                    'payment_mode' => $p['payment_mode'],
-                    'reference_no' => $p['reference_no'],
-                    'remarks' => $p['remarks'],
-                    'created_at' => $p['created_at'],
-                ];
-            }, $linked),
-            'paid_amount' => $paid,
-            'remaining_balance' => $remaining,
-            'payment_status' => $paymentStatus,
-        ];
-    }, $bills);
-
-    send_json($enriched);
-}
-
-// POST /api/bills
-if ($path === 'bills' && $method === 'POST') {
-    $authUser = get_auth_user();
-    $b = get_json_body();
-
-    $total = round((float)($b['total_bill_amount'] ?? 0), 2);
-    $tax = (float)($b['tax_percent'] ?? 0);
-    $taxAmount = round(($total * $tax) / 100, 2);
-    $actual = round($total - $taxAmount, 2);
-    $syncId = !empty($b['sync_id']) ? $b['sync_id'] : generate_uuid();
-
-    $check = $pdo->prepare('SELECT id FROM bills WHERE sync_id = ?');
-    $check->execute([$syncId]);
-    $existing = $check->fetch();
-
-    if ($existing) {
-        $up = $pdo->prepare('UPDATE bills SET
-            posting_date = ?, bill_date = ?, supplier_name = ?, supplier_bill_no = ?,
-            voucher_no = ?, total_bill_amount = ?, tax_percent = ?, tax_amount = ?,
-            actual_amount = ?, category = ?, remarks = ?
-            WHERE sync_id = ?');
-        $up->execute([
-            $b['posting_date'] ?? date('Y-m-d'),
-            $b['bill_date'] ?? date('Y-m-d'),
-            $b['supplier_name'] ?? '',
-            $b['supplier_bill_no'] ?? '',
-            $b['voucher_no'] ?? '',
-            $total,
-            $tax,
-            $taxAmount,
-            $actual,
-            $b['category'] ?? 'PAYABLE',
-            $b['remarks'] ?? '',
-            $syncId,
-        ]);
-    } else {
-        $ins = $pdo->prepare('INSERT INTO bills (
-            sync_id, posting_date, bill_date, supplier_name, supplier_bill_no,
-            voucher_no, total_bill_amount, tax_percent, tax_amount, actual_amount,
-            category, remarks, created_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-        $ins->execute([
-            $syncId,
-            $b['posting_date'] ?? date('Y-m-d'),
-            $b['bill_date'] ?? date('Y-m-d'),
-            $b['supplier_name'] ?? '',
-            $b['supplier_bill_no'] ?? '',
-            $b['voucher_no'] ?? '',
-            $total,
-            $tax,
-            $taxAmount,
-            $actual,
-            $b['category'] ?? 'PAYABLE',
-            $b['remarks'] ?? '',
-            $authUser['username'] ?? 'system',
-        ]);
-    }
-
-    $out = $pdo->prepare('SELECT * FROM bills WHERE sync_id = ?');
-    $out->execute([$syncId]);
-    send_json($out->fetch());
-}
-
-// DELETE /api/bills/{syncId}
-if (preg_match('#^bills/(.+)$#', $path, $m) && $method === 'DELETE') {
-    get_auth_user();
-    $syncId = urldecode($m[1]);
-    $stmt = $pdo->prepare('UPDATE bills SET deleted_at = CURRENT_TIMESTAMP WHERE sync_id = ?');
-    $stmt->execute([$syncId]);
-    send_json(['success' => true, 'syncId' => $syncId]);
-}
-
-// ====================================================================
-// PAYMENTS ROUTES
-// ====================================================================
-
-// POST /api/payments
-if ($path === 'payments' && $method === 'POST') {
-    $authUser = get_auth_user();
-    $p = get_json_body();
-    $syncId = !empty($p['sync_id']) ? $p['sync_id'] : generate_uuid();
-    $amount = round((float)($p['amount'] ?? 0), 2);
-
-    $check = $pdo->prepare('SELECT id FROM payments WHERE sync_id = ?');
-    $check->execute([$syncId]);
-    $existing = $check->fetch();
-
-    if ($existing) {
-        $up = $pdo->prepare('UPDATE payments SET
-            bill_sync_id = ?, payment_date = ?, amount = ?, payment_mode = ?,
-            reference_no = ?, remarks = ? WHERE sync_id = ?');
-        $up->execute([
-            $p['bill_sync_id'] ?? '',
-            $p['payment_date'] ?? date('Y-m-d'),
-            $amount,
-            $p['payment_mode'] ?? 'COUNTER_CASH',
-            $p['reference_no'] ?? '',
-            $p['remarks'] ?? '',
-            $syncId,
-        ]);
-    } else {
-        $ins = $pdo->prepare('INSERT INTO payments (
-            sync_id, bill_sync_id, payment_date, amount,
-            payment_mode, reference_no, remarks, created_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-        $ins->execute([
-            $syncId,
-            $p['bill_sync_id'] ?? '',
-            $p['payment_date'] ?? date('Y-m-d'),
-            $amount,
-            $p['payment_mode'] ?? 'COUNTER_CASH',
-            $p['reference_no'] ?? '',
-            $p['remarks'] ?? '',
-            $authUser['username'] ?? 'system',
-        ]);
-    }
-
-    $out = $pdo->prepare('SELECT * FROM payments WHERE sync_id = ?');
-    $out->execute([$syncId]);
-    send_json($out->fetch());
-}
-
-// DELETE /api/payments/{syncId}
-if (preg_match('#^payments/(.+)$#', $path, $m) && $method === 'DELETE') {
-    get_auth_user();
-    $syncId = urldecode($m[1]);
-    $stmt = $pdo->prepare('UPDATE payments SET deleted_at = CURRENT_TIMESTAMP WHERE sync_id = ?');
-    $stmt->execute([$syncId]);
-    send_json(['success' => true, 'syncId' => $syncId]);
-}
-
-// 404 Fallback
-send_json(['error' => 'API endpoint not found: ' . $path], 404);
+// All finance routes share authentication and transactional accounting rules.
+require_once __DIR__ . '/finance.php';
+$actor = get_auth_user();
+try {
+    try { records_automatic_backup($pdo,$cfg); } catch(Throwable $e) { error_log('SPMS automatic backup failed: '.get_class($e)); }
+    $body = in_array($method, ['POST', 'PUT', 'PATCH'], true) ? get_json_body() : [];
+    if (!is_array($body)) throw new LedgerError('Invalid request body.');
+    // Preserve older clients that let the server assign identifiers.
+    if ($method === 'POST' && in_array($path, ['bills', 'payments'], true) && empty($body['sync_id'])) $body['sync_id'] = generate_uuid();
+    if ($method === 'POST' && $path === 'returns' && empty($body['syncId'])) $body['syncId'] = generate_uuid();
+    if (str_starts_with($path,'records/')) { [$result,$code]=records_route($pdo,$cfg,$actor,$path,$method,$body,$_GET); send_json($result,$code); }
+    [$result, $code] = finance_route($pdo, $path, $method, $_GET, $body, $actor['username']);
+    send_json($result, $code);
+} catch (LedgerError $e) { send_json(['error' => $e->getMessage()], 400); }
