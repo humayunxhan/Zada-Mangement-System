@@ -21,7 +21,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-[[ -z "${SSH_ORIGINAL_COMMAND:-}" ]] || { echo 'SPMS deploy key does not accept remote commands.' >&2; exit 1; }
+expected_command='/home/u728298835/domains/zadapharmacy.com/spms-private/deploy-system/gateway.sh'
+[[ -z "${SSH_ORIGINAL_COMMAND:-}" || "$SSH_ORIGINAL_COMMAND" == "$expected_command" ]] || { echo 'SPMS deploy key does not accept other remote commands.' >&2; exit 1; }
 if ! mkdir "$lock" 2>/dev/null; then
   echo 'An SPMS deployment is already running.' >&2
   exit 1
