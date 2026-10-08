@@ -6,6 +6,9 @@ let connectionPromise = null;
 export async function connectDatabase() {
   if (mongoose.connection.readyState === 1) return mongoose.connection;
   if (connectionPromise) return connectionPromise;
+  if (!env.mongoUri) {
+    throw new Error('MONGODB_URI is required before the CEO synchronization server can start');
+  }
   mongoose.set('strictQuery', true);
   connectionPromise = mongoose.connect(env.mongoUri)
     .then(() => {
